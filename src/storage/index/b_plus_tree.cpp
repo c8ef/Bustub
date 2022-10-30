@@ -47,6 +47,22 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) -> bool {
+  // the tree is empty
+  if (root_page_id_ == INVALID_PAGE_ID) {
+    auto new_page = buffer_pool_manager_->NewPage(&root_page_id_);
+    auto page_data = reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE *>(new_page);
+    UpdateRootPageId();
+    page_data->Init(root_page_id_, INVALID_PAGE_ID, leaf_max_size_);
+    page_data->IncreaseSize(1);
+    page_data->SetNextPageId(INVALID_PAGE_ID);
+
+    auto inner_data = reinterpret_cast<MappingType *>(new_page->GetData() + LEAF_PAGE_HEADER_SIZE);
+    inner_data[0].first = key;
+    inner_data[0].second = value;
+
+    buffer_pool_manager_->UnpinPage(root_page_id_, true);
+    return true;
+  }
   return false;
 }
 

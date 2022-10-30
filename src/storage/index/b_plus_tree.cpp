@@ -79,6 +79,7 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) -> bool {
+  std::cout << "Debug Insert " << key.ToString() << '\n';
   // the tree is empty
   // create an empty leaf node, which is also the root
   if (root_page_id_ == INVALID_PAGE_ID) {
@@ -105,14 +106,17 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     auto *inner = reinterpret_cast<InternalPage *>(root_page);
     page_id_t child = INVALID_PAGE_ID;
     for (int i = 1; i < inner->GetSize(); ++i) {
+      std::cout << "Debug Insert " << inner->KeyAt(i).ToString() << " compare " << key.ToString() << '\n';
       if (comparator_(inner->KeyAt(i), key) > 0) {
         child = inner->ValueAt(i - 1);
         break;
       }
     }
     if (child == INVALID_PAGE_ID) {
-      child = inner->ValueAt(tree_page->GetSize() - 1);
+      std::cout << "[PROBLEM] " << tree_page->GetSize() - 1 << "->" << inner->ValueAt(tree_page->GetSize() - 1) << '\n';
+      child = inner->ValueAt(inner->GetSize() - 1);
     }
+    std::cout << "Debug Insert " << key.ToString() << " choose " << child << '\n';
     buffer_pool_manager_->UnpinPage(last_page_id, false);
     last_page_id = child;
     root_page = buffer_pool_manager_->FetchPage(last_page_id);

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <iostream>
 #include <list>
 #include <memory>
 #include <mutex>  // NOLINT
@@ -95,6 +96,12 @@ class ExtendibleHashTable : public HashTable<K, V> {
   void Insert(const K &key, const V &value) override;
 
   /**
+   * the same functionality as Insert
+   * without holding the lock
+   */
+  void InsertInner(const K &key, const V &value);
+
+  /**
    *
    * TODO(P1): Add implementation
    *
@@ -106,6 +113,20 @@ class ExtendibleHashTable : public HashTable<K, V> {
   auto Remove(const K &key) -> bool override;
 
   /**
+   * pretty print the hashtable
+   * for debugging
+   */
+  auto DebugPrint() -> void {
+    std::cout << "------begin------\n";
+    for (size_t i = 0; i < dir_.size(); ++i) {
+      std::cout << "DIR " << i << ": ";
+      dir_[i]->DebugPrint();
+      std::cout << '\n';
+    }
+    std::cout << "-------end-------\n";
+  }
+
+  /**
    * Bucket class for each hash table bucket that the directory points to.
    */
   class Bucket {
@@ -115,13 +136,33 @@ class ExtendibleHashTable : public HashTable<K, V> {
     /** @brief Check if a bucket is full. */
     inline auto IsFull() const -> bool { return list_.size() == size_; }
 
+    inline auto GetSize() const -> size_t { return size_; }
+
     /** @brief Get the local depth of the bucket. */
-    inline auto GetDepth() const -> int { return depth_; }
+    inline auto GetDepth() const -> int {
+      std::scoped_lock<std::mutex> lock(latch_);
+      return depth_;
+    }
 
     /** @brief Increment the local depth of a bucket. */
     inline void IncrementDepth() { depth_++; }
 
-    inline auto GetItems() -> std::list<std::pair<K, V>> & { return list_; }
+    inline auto GetItems() -> std::list<std::pair<K, V>> & {
+      std::scoped_lock<std::mutex> lock(latch_);
+      return list_;
+    }
+
+    /**
+     * pretty print for debugging
+     */
+    inline auto DebugPrint() -> void {
+      std::cout << "[";
+      for (const auto &p : list_) {
+        std::cout << "{" << p.first << '}';
+      }
+      std::cout << ']';
+      std::cout << " local depth: " << depth_;
+    }
 
     /**
      *
@@ -160,17 +201,18 @@ class ExtendibleHashTable : public HashTable<K, V> {
    private:
     // TODO(student): You may add additional private members and helper functions
     size_t size_;
-    int depth_;
+    int depth_{0};
     std::list<std::pair<K, V>> list_;
+    mutable std::mutex latch_;
   };
 
  private:
   // TODO(student): You may add additional private members and helper functions and remove the ones
   // you don't need.
 
-  int global_depth_;    // The global depth of the directory
-  size_t bucket_size_;  // The size of a bucket
-  int num_buckets_;     // The number of buckets in the hash table
+  int global_depth_{0};  // The global depth of the directory
+  size_t bucket_size_;   // The size of a bucket
+  int num_buckets_{1};   // The number of buckets in the hash table
   mutable std::mutex latch_;
   std::vector<std::shared_ptr<Bucket>> dir_;  // The directory of the hash table
 

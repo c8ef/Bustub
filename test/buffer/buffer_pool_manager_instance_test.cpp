@@ -23,7 +23,7 @@ namespace bustub {
 
 // NOLINTNEXTLINE
 // Check whether pages containing terminal characters can be recovered
-TEST(BufferPoolManagerInstanceTest, DISABLED_BinaryDataTest) {
+TEST(BufferPoolManagerInstanceTest, BinaryDataTest) {
   const std::string db_name = "test.db";
   const size_t buffer_pool_size = 10;
   const size_t k = 5;
@@ -69,7 +69,7 @@ TEST(BufferPoolManagerInstanceTest, DISABLED_BinaryDataTest) {
   // Scenario: After unpinning pages {0, 1, 2, 3, 4} we should be able to create 5 new pages
   for (int i = 0; i < 5; ++i) {
     EXPECT_EQ(true, bpm->UnpinPage(i, true));
-    bpm->FlushPage(i);
+    EXPECT_TRUE(bpm->FlushPage(i));
   }
   for (int i = 0; i < 5; ++i) {
     EXPECT_NE(nullptr, bpm->NewPage(&page_id_temp));
@@ -89,7 +89,7 @@ TEST(BufferPoolManagerInstanceTest, DISABLED_BinaryDataTest) {
 }
 
 // NOLINTNEXTLINE
-TEST(BufferPoolManagerInstanceTest, DISABLED_SampleTest) {
+TEST(BufferPoolManagerInstanceTest, SampleTest) {
   const std::string db_name = "test.db";
   const size_t buffer_pool_size = 10;
   const size_t k = 5;
@@ -141,6 +141,88 @@ TEST(BufferPoolManagerInstanceTest, DISABLED_SampleTest) {
   disk_manager->ShutDown();
   remove("test.db");
 
+  delete bpm;
+  delete disk_manager;
+}
+
+TEST(BufferPoolManagerInstanceTest, IsDirtyTest) {
+  const std::string db_name = "test.db";
+  const size_t buffer_pool_size = 10;
+  const size_t k = 5;
+
+  std::random_device r;
+  std::default_random_engine rng(r());
+  std::uniform_int_distribution<char> uniform_dist(0);
+
+  auto *disk_manager = new DiskManager(db_name);
+  auto *bpm = new BufferPoolManagerInstance(buffer_pool_size, disk_manager, k);
+
+  page_id_t page_id_temp;
+  auto *page0 = bpm->NewPage(&page_id_temp);
+  bpm->UnpinPage(0, true);
+  bpm->UnpinPage(0, false);
+  ASSERT_EQ(true, page0->IsDirty());
+  disk_manager->ShutDown();
+  remove("test.db");
+
+  delete bpm;
+  delete disk_manager;
+}
+
+TEST(BufferPoolManagerInstanceTest, MayBeHardTest) {
+  const std::string db_name = "test.db";
+  const size_t buffer_pool_size = 10;
+  const size_t k = 5;
+
+  std::random_device r;
+  std::default_random_engine rng(r());
+  std::uniform_int_distribution<char> uniform_dist(0);
+
+  auto *disk_manager = new DiskManager(db_name);
+  auto *bpm = new BufferPoolManagerInstance(buffer_pool_size, disk_manager, k);
+
+  page_id_t page_id_temp;
+
+  for (size_t i = 0; i < buffer_pool_size; ++i) {
+    ASSERT_TRUE(bpm->NewPage(&page_id_temp));
+  }
+
+  for (size_t i = 0; i < buffer_pool_size; ++i) {
+    ASSERT_FALSE(bpm->NewPage(&page_id_temp));
+  }
+
+  for (size_t i = 0; i < buffer_pool_size; ++i) {
+    ASSERT_TRUE(bpm->UnpinPage(i, true));
+    ASSERT_FALSE(bpm->UnpinPage(i, true));
+    ASSERT_TRUE(bpm->FlushPage(i));
+  }
+
+  for (size_t i = 10; i < buffer_pool_size + 10; ++i) {
+    ASSERT_TRUE(bpm->NewPage(&page_id_temp));
+    ASSERT_TRUE(bpm->UnpinPage(i, true));
+  }
+
+  for (size_t i = 0; i < buffer_pool_size; ++i) {
+    ASSERT_TRUE(bpm->FetchPage(i));
+  }
+
+  ASSERT_TRUE(bpm->UnpinPage(4, true));
+  ASSERT_TRUE(bpm->NewPage(&page_id_temp));
+
+  ASSERT_TRUE(bpm->UnpinPage(5, false));
+  ASSERT_TRUE(bpm->UnpinPage(6, false));
+  ASSERT_TRUE(bpm->UnpinPage(7, false));
+
+  ASSERT_FALSE(bpm->UnpinPage(5, false));
+  ASSERT_FALSE(bpm->UnpinPage(6, false));
+  ASSERT_FALSE(bpm->UnpinPage(7, false));
+
+  ASSERT_TRUE(bpm->NewPage(&page_id_temp));
+  ASSERT_TRUE(bpm->FetchPage(5));
+  ASSERT_TRUE(bpm->FetchPage(6));
+
+  disk_manager->ShutDown();
+  remove("test.db");
   delete bpm;
   delete disk_manager;
 }

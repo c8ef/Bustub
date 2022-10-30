@@ -54,6 +54,30 @@ class BufferPoolManagerInstance : public BufferPoolManager {
 
  protected:
   /**
+   * Find a frame for new/fetch page
+   * first search in the free_list, if free_list is empty, search in the lru
+   * Should be called with holding the lock
+   */
+  auto FindEvict() -> frame_id_t {
+    frame_id_t ret;
+    if (!free_list_.empty()) {
+      ret = free_list_.front();
+      free_list_.pop_front();
+      return ret;
+    }
+    if (replacer_->Evict(&ret)) {
+      // when evict a page, remove its page table entry
+      page_table_->Remove(pages_[ret].GetPageId());
+      if (pages_[ret].IsDirty()) {
+        disk_manager_->WritePage(pages_[ret].GetPageId(), pages_[ret].GetData());
+      }
+      pages_[ret].is_dirty_ = false;
+      return ret;
+    }
+    return -1;
+  }
+
+  /**
    * TODO(P1): Add implementation
    *
    * @brief Create a new page in the buffer pool. Set page_id to the new page's id, or nullptr if all frames

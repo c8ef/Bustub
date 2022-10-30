@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <iostream>
 #include <limits>
 #include <list>
 #include <mutex>  // NOLINT
@@ -132,14 +133,40 @@ class LRUKReplacer {
    */
   auto Size() -> size_t;
 
+  /**
+   * frame information in LRU
+   */
+  struct FrameInfo {
+    std::list<size_t> timestamps_;
+    bool evictable_;
+  };
+
+  /**
+   * pretty print for debugging
+   */
+  auto DebugPrint() -> void {
+    std::cout << "------begin------\n";
+    for (const auto &p : frame_map_) {
+      std::cout << p.first << " ";
+      std::cout << p.second.evictable_ << " ";
+      std::cout << "{";
+      for (const auto &ele : p.second.timestamps_) {
+        std::cout << ele << " ";
+      }
+      std::cout << "}\n";
+    }
+    std::cout << "-------end-------\n";
+  }
+
  private:
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.
-  [[maybe_unused]] size_t current_timestamp_{0};
-  [[maybe_unused]] size_t curr_size_{0};
+  size_t current_timestamp_{0};
+  size_t curr_size_{0};
   [[maybe_unused]] size_t replacer_size_;
-  [[maybe_unused]] size_t k_;
+  size_t k_;
   std::mutex latch_;
+  std::unordered_map<frame_id_t, FrameInfo> frame_map_;
 };
 
 }  // namespace bustub

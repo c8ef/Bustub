@@ -50,6 +50,9 @@ class BPlusTree {
 
   auto InsertInLeaf(Page *page, const KeyType &key, const ValueType &value, Transaction *transaction = nullptr) -> bool;
 
+  auto InsertWithSplit(Page *page, const KeyType &key, const ValueType &value, bool IsLeaf,
+                       Transaction *transaction = nullptr) -> bool;
+
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key, Transaction *transaction = nullptr);
 

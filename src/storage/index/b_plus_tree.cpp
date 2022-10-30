@@ -96,17 +96,49 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   if (tree_page->IsLeafPage() && tree_page->GetSize() < tree_page->GetMaxSize()) {
     return InsertInLeaf(root_page, key, value, transaction);
   } else if (tree_page->IsLeafPage() && tree_page->GetSize() == tree_page->GetMaxSize()) {
-    // root page full, split
-    auto *leaf = reinterpret_cast<LeafPage *>(root_page);
+    return InsertWithSplit(root_page, key, value, true);
+  }
+
+  auto last_page_id = root_page_id_;
+  auto inner_page = reinterpret_cast<BPlusTreePage *>(root_page);
+  while (!inner_page->IsLeafPage()) {
+    auto *inner = reinterpret_cast<InternalPage *>(root_page);
+    page_id_t child = INVALID_PAGE_ID;
+    for (int i = 1; i < inner->GetSize(); ++i) {
+      if (comparator_(inner->KeyAt(i), key) > 0) {
+        child = inner->ValueAt(i - 1);
+        break;
+      }
+    }
+    if (child == INVALID_PAGE_ID) {
+      child = inner->ValueAt(tree_page->GetSize() - 1);
+    }
+    buffer_pool_manager_->UnpinPage(last_page_id, false);
+    last_page_id = child;
+    root_page = buffer_pool_manager_->FetchPage(last_page_id);
+    inner_page = reinterpret_cast<BPlusTreePage *>(root_page);
+  }
+  auto *leaf = reinterpret_cast<LeafPage *>(root_page);
+  if (leaf->GetSize() < leaf->GetMaxSize()) {
+    return InsertInLeaf(root_page, key, value, transaction);
+  }
+  return false;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const ValueType &value, bool IsLeaf,
+                                     Transaction *transaction) -> bool {
+  if (IsLeaf) {
+    auto *leaf = reinterpret_cast<LeafPage *>(page);
     page_id_t split_page_id;
     auto split_page = buffer_pool_manager_->NewPage(&split_page_id);
     auto split_tree_page = reinterpret_cast<LeafPage *>(split_page);
-    auto inner_data = reinterpret_cast<MappingType *>(root_page->GetData() + LEAF_PAGE_HEADER_SIZE);
+    auto inner_data = reinterpret_cast<MappingType *>(page->GetData() + LEAF_PAGE_HEADER_SIZE);
     auto split_inner_data = reinterpret_cast<MappingType *>(split_page->GetData() + LEAF_PAGE_HEADER_SIZE);
 
     // init the metadata
     split_tree_page->Init(split_page_id, INVALID_PAGE_ID, leaf_max_size_);
-    split_tree_page->SetNextPageId(INVALID_PAGE_ID);
+    split_tree_page->SetNextPageId(leaf->GetNextPageId());
 
     // store the element in the buffer
     MappingType *temp_buffer = new MappingType[leaf->GetSize() + 1];
@@ -132,63 +164,41 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
       if (i < old_size / 2) {
         inner_data[i] = temp_buffer[i];
       } else {
-        split_inner_data[i - tree_page->GetSize()] = temp_buffer[i];
+        split_inner_data[i - leaf->GetSize()] = temp_buffer[i];
       }
     }
     leaf->SetNextPageId(split_page_id);
 
     // setup parent
-    page_id_t parent_page_id;
-    auto parent_page = buffer_pool_manager_->NewPage(&parent_page_id);
-    auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
-    parent_tree_page->Init(parent_page_id, INVALID_PAGE_ID, internal_max_size_);
-    auto parent_inner_data =
-        reinterpret_cast<std::pair<KeyType, page_id_t> *>(parent_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
+    if (leaf->GetParentPageId() == INVALID_PAGE_ID) {
+      page_id_t parent_page_id;
+      auto parent_page = buffer_pool_manager_->NewPage(&parent_page_id);
+      auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
+      parent_tree_page->Init(parent_page_id, INVALID_PAGE_ID, internal_max_size_);
+      auto parent_inner_data =
+          reinterpret_cast<std::pair<KeyType, page_id_t> *>(parent_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
 
-    parent_inner_data[parent_tree_page->GetSize() + 1].first = split_inner_data[0].first;
-    parent_inner_data[parent_tree_page->GetSize()].second = root_page_id_;
-    parent_inner_data[parent_tree_page->GetSize() + 1].second = split_page_id;
-    parent_tree_page->IncreaseSize(2);
+      parent_inner_data[parent_tree_page->GetSize() + 1].first = split_inner_data[0].first;
+      parent_inner_data[parent_tree_page->GetSize()].second = root_page_id_;
+      parent_inner_data[parent_tree_page->GetSize() + 1].second = split_page_id;
+      parent_tree_page->IncreaseSize(2);
 
-    // update parent
-    leaf->SetParentPageId(parent_page_id);
-    split_tree_page->SetParentPageId(parent_page_id);
+      // update parent
+      leaf->SetParentPageId(parent_page_id);
+      split_tree_page->SetParentPageId(parent_page_id);
 
-    // update root
-    auto old_root_id = root_page_id_;
-    root_page_id_ = parent_page_id;
-    UpdateRootPageId();
+      // update root
+      auto old_root_id = root_page_id_;
+      root_page_id_ = parent_page_id;
+      UpdateRootPageId();
 
-    // unpin all used page
-    buffer_pool_manager_->UnpinPage(old_root_id, true);
-    buffer_pool_manager_->UnpinPage(split_page_id, true);
-    buffer_pool_manager_->UnpinPage(parent_page_id, true);
-    delete[] temp_buffer;
-    return true;
-  }
-
-  auto last_page_id = root_page_id_;
-  auto inner_page = reinterpret_cast<BPlusTreePage *>(root_page);
-  while (!inner_page->IsLeafPage()) {
-    auto *inner = reinterpret_cast<InternalPage *>(root_page);
-    page_id_t child = INVALID_PAGE_ID;
-    for (int i = 1; i < inner->GetSize(); ++i) {
-      if (comparator_(inner->KeyAt(i), key) > 0) {
-        child = inner->ValueAt(i - 1);
-        break;
-      }
+      // unpin all used page
+      buffer_pool_manager_->UnpinPage(old_root_id, true);
+      buffer_pool_manager_->UnpinPage(split_page_id, true);
+      buffer_pool_manager_->UnpinPage(parent_page_id, true);
+      delete[] temp_buffer;
+      return true;
     }
-    if (child == INVALID_PAGE_ID) {
-      child = inner->ValueAt(tree_page->GetSize() - 1);
-    }
-    buffer_pool_manager_->UnpinPage(last_page_id, false);
-    last_page_id = child;
-    root_page = buffer_pool_manager_->FetchPage(last_page_id);
-    inner_page = reinterpret_cast<BPlusTreePage *>(root_page);
-  }
-  auto *leaf = reinterpret_cast<LeafPage *>(root_page);
-  if (leaf->GetSize() < leaf->GetMaxSize()) {
-    return InsertInLeaf(root_page, key, value, transaction);
   }
   return false;
 }

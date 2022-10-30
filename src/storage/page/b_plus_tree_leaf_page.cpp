@@ -32,6 +32,7 @@ void B_PLUS_TREE_LEAF_PAGE_TYPE::Init(page_id_t page_id, page_id_t parent_id, in
   this->SetPageId(page_id);
   this->SetParentPageId(parent_id);
   this->SetMaxSize(max_size);
+  this->SetNextPageId(INVALID_PAGE_ID);
   this->SetSize(0);
 }
 

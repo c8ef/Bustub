@@ -50,6 +50,9 @@ class BPlusTree {
 
   auto InsertInLeaf(Page *page, const KeyType &key, const ValueType &value, Transaction *transaction = nullptr) -> bool;
 
+  auto InsertInternal(Page *page, const KeyType &key, const page_id_t &value, Transaction *transaction = nullptr)
+      -> bool;
+
   auto InsertWithSplit(Page *page, const KeyType &key, const ValueType &value, bool IsLeaf,
                        Transaction *transaction = nullptr) -> bool;
 

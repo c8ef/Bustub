@@ -91,12 +91,13 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   }
 
   auto root_page = buffer_pool_manager_->FetchPage(root_page_id_);
-  auto tree_page = reinterpret_cast<LeafPage *>(root_page);
+  auto tree_page = reinterpret_cast<BPlusTreePage *>(root_page);
   // root page is leaf page, not full
   if (tree_page->IsLeafPage() && tree_page->GetSize() < tree_page->GetMaxSize()) {
     return InsertInLeaf(root_page, key, value, transaction);
   } else if (tree_page->IsLeafPage() && tree_page->GetSize() == tree_page->GetMaxSize()) {
     // root page full, split
+    auto *leaf = reinterpret_cast<LeafPage *>(root_page);
     page_id_t split_page_id;
     auto split_page = buffer_pool_manager_->NewPage(&split_page_id);
     auto split_tree_page = reinterpret_cast<LeafPage *>(split_page);
@@ -108,9 +109,9 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     split_tree_page->SetNextPageId(INVALID_PAGE_ID);
 
     // store the element in the buffer
-    MappingType *temp_buffer = new MappingType[tree_page->GetSize() + 1];
+    MappingType *temp_buffer = new MappingType[leaf->GetSize() + 1];
 
-    for (int i = 0; i < tree_page->GetSize(); ++i) {
+    for (int i = 0; i < leaf->GetSize(); ++i) {
       if (comparator_(inner_data[i].first, key) == 0) {
         buffer_pool_manager_->UnpinPage(root_page_id_, false);
         buffer_pool_manager_->DeletePage(split_page_id);
@@ -118,14 +119,14 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
       }
       temp_buffer[i] = inner_data[i];
     }
-    temp_buffer[tree_page->GetSize()].first = key;
-    temp_buffer[tree_page->GetSize()].second = value;
-    std::sort(temp_buffer, temp_buffer + tree_page->GetSize() + 1,
+    temp_buffer[leaf->GetSize()].first = key;
+    temp_buffer[leaf->GetSize()].second = value;
+    std::sort(temp_buffer, temp_buffer + leaf->GetSize() + 1,
               [this](auto &&lhs, auto &&rhs) { return comparator_(lhs.first, rhs.first) < 0; });
 
     // re-distribute
-    auto old_size = tree_page->GetSize() + 1;
-    tree_page->SetSize(old_size / 2);
+    auto old_size = leaf->GetSize() + 1;
+    leaf->SetSize(old_size / 2);
     split_tree_page->SetSize(old_size - old_size / 2);
     for (int i = 0; i < old_size; ++i) {
       if (i < old_size / 2) {
@@ -134,7 +135,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
         split_inner_data[i - tree_page->GetSize()] = temp_buffer[i];
       }
     }
-    tree_page->SetNextPageId(split_page_id);
+    leaf->SetNextPageId(split_page_id);
 
     // setup parent
     page_id_t parent_page_id;
@@ -150,7 +151,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     parent_tree_page->IncreaseSize(2);
 
     // update parent
-    tree_page->SetParentPageId(parent_page_id);
+    leaf->SetParentPageId(parent_page_id);
     split_tree_page->SetParentPageId(parent_page_id);
 
     // update root

@@ -403,7 +403,6 @@ INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::ToString(BPlusTreePage *page, BufferPoolManager *bpm) const {
   if (page->IsLeafPage()) {
     auto *leaf = reinterpret_cast<LeafPage *>(page);
-    // std::cout<<"\ndebug leaf i "<<leaf->GetPageId()<<'\n';
     std::cout << "Leaf Page: " << leaf->GetPageId() << " parent: " << leaf->GetParentPageId()
               << " next: " << leaf->GetNextPageId() << std::endl;
     for (int i = 0; i < leaf->GetSize(); i++) {
@@ -420,7 +419,6 @@ void BPLUSTREE_TYPE::ToString(BPlusTreePage *page, BufferPoolManager *bpm) const
     std::cout << std::endl;
     std::cout << std::endl;
     for (int i = 0; i < internal->GetSize(); i++) {
-      // std::cout<<"\ndebug valueat i "<<internal->ValueAt(i)<<'\n';
       ToString(reinterpret_cast<BPlusTreePage *>(bpm->FetchPage(internal->ValueAt(i))->GetData()), bpm);
     }
   }

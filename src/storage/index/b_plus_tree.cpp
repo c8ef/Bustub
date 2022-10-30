@@ -54,45 +54,15 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     auto page_data = reinterpret_cast<LeafPage *>(new_page);
     UpdateRootPageId();
     page_data->Init(root_page_id_, INVALID_PAGE_ID, leaf_max_size_);
-    page_data->IncreaseSize(1);
     page_data->SetNextPageId(INVALID_PAGE_ID);
-
-    auto inner_data = reinterpret_cast<MappingType *>(new_page->GetData() + LEAF_PAGE_HEADER_SIZE);
-    inner_data[0].first = key;
-    inner_data[0].second = value;
-
-    buffer_pool_manager_->UnpinPage(root_page_id_, true);
-    return true;
+    return InsertInLeaf(new_page, key, value, transaction);
   }
 
   auto root_page = buffer_pool_manager_->FetchPage(root_page_id_);
   auto tree_page = reinterpret_cast<LeafPage *>(root_page);
   // root page is leaf page, not full
   if (tree_page->IsLeafPage() && tree_page->GetSize() < tree_page->GetMaxSize()) {
-    auto inner_data = reinterpret_cast<MappingType *>(root_page->GetData() + LEAF_PAGE_HEADER_SIZE);
-    int insert_pos = 0;
-    for (; insert_pos < tree_page->GetSize(); ++insert_pos) {
-      if (comparator_(inner_data[insert_pos].first, key) == 0) {
-        buffer_pool_manager_->UnpinPage(root_page_id_, false);
-        return false;
-      } else if (comparator_(key, inner_data[insert_pos].first) < 0) {
-        break;
-      }
-    }
-
-    if (insert_pos == tree_page->GetSize()) {
-      inner_data[insert_pos].first = key;
-      inner_data[insert_pos].second = value;
-    } else {
-      for (int i = tree_page->GetSize() - 1; i >= insert_pos; --i) {
-        inner_data[i + 1] = inner_data[i];
-      }
-      inner_data[insert_pos].first = key;
-      inner_data[insert_pos].second = value;
-    }
-    tree_page->IncreaseSize(1);
-    buffer_pool_manager_->UnpinPage(root_page_id_, true);
-    return true;
+    return InsertInLeaf(root_page, key, value, transaction);
   } else {
     // root page full, split
     page_id_t split_page_id;
@@ -165,6 +135,42 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   }
 
   return false;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::InsertInLeaf(Page *page, const KeyType &key, const ValueType &value, Transaction *transaction)
+    -> bool {
+  auto tree_page = reinterpret_cast<LeafPage *>(page);
+  auto inner_data = reinterpret_cast<MappingType *>(page->GetData() + LEAF_PAGE_HEADER_SIZE);
+  if (tree_page->GetSize() == 0) {
+    inner_data[0].first = key;
+    inner_data[0].second = value;
+  } else {
+    int insert_pos = 0;
+    for (; insert_pos < tree_page->GetSize(); ++insert_pos) {
+      if (comparator_(inner_data[insert_pos].first, key) == 0) {
+        buffer_pool_manager_->UnpinPage(root_page_id_, false);
+        return false;
+      } else if (comparator_(key, inner_data[insert_pos].first) < 0) {
+        break;
+      }
+    }
+
+    if (insert_pos == tree_page->GetSize()) {
+      inner_data[insert_pos].first = key;
+      inner_data[insert_pos].second = value;
+    } else {
+      for (int i = tree_page->GetSize() - 1; i >= insert_pos; --i) {
+        inner_data[i + 1] = inner_data[i];
+      }
+      inner_data[insert_pos].first = key;
+      inner_data[insert_pos].second = value;
+    }
+  }
+
+  tree_page->IncreaseSize(1);
+  buffer_pool_manager_->UnpinPage(root_page_id_, true);
+  return true;
 }
 
 /*****************************************************************************

@@ -166,6 +166,29 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     return true;
   }
 
+  auto last_page_id = root_page_id_;
+  auto inner_page = reinterpret_cast<BPlusTreePage *>(root_page);
+  while (!inner_page->IsLeafPage()) {
+    auto *inner = reinterpret_cast<InternalPage *>(root_page);
+    page_id_t child = INVALID_PAGE_ID;
+    for (int i = 1; i < inner->GetSize(); ++i) {
+      if (comparator_(inner->KeyAt(i), key) > 0) {
+        child = inner->ValueAt(i - 1);
+        break;
+      }
+    }
+    if (child == INVALID_PAGE_ID) {
+      child = inner->ValueAt(tree_page->GetSize() - 1);
+    }
+    buffer_pool_manager_->UnpinPage(last_page_id, false);
+    last_page_id = child;
+    root_page = buffer_pool_manager_->FetchPage(last_page_id);
+    inner_page = reinterpret_cast<BPlusTreePage *>(root_page);
+  }
+  auto *leaf = reinterpret_cast<LeafPage *>(root_page);
+  if (leaf->GetSize() < leaf->GetMaxSize()) {
+    return InsertInLeaf(root_page, key, value, transaction);
+  }
   return false;
 }
 
@@ -201,7 +224,7 @@ auto BPLUSTREE_TYPE::InsertInLeaf(Page *page, const KeyType &key, const ValueTyp
   }
 
   tree_page->IncreaseSize(1);
-  buffer_pool_manager_->UnpinPage(root_page_id_, true);
+  buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
   return true;
 }
 

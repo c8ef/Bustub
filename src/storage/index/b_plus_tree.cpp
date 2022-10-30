@@ -79,7 +79,6 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) -> bool {
-  std::cout << "Debug Insert " << key.ToString() << '\n';
   // the tree is empty
   // create an empty leaf node, which is also the root
   if (root_page_id_ == INVALID_PAGE_ID) {
@@ -106,17 +105,14 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     auto *inner = reinterpret_cast<InternalPage *>(root_page);
     page_id_t child = INVALID_PAGE_ID;
     for (int i = 1; i < inner->GetSize(); ++i) {
-      std::cout << "Debug Insert " << inner->KeyAt(i).ToString() << " compare " << key.ToString() << '\n';
       if (comparator_(inner->KeyAt(i), key) > 0) {
         child = inner->ValueAt(i - 1);
         break;
       }
     }
     if (child == INVALID_PAGE_ID) {
-      std::cout << "[PROBLEM] " << tree_page->GetSize() - 1 << "->" << inner->ValueAt(tree_page->GetSize() - 1) << '\n';
       child = inner->ValueAt(inner->GetSize() - 1);
     }
-    std::cout << "Debug Insert " << key.ToString() << " choose " << child << '\n';
     buffer_pool_manager_->UnpinPage(last_page_id, false);
     last_page_id = child;
     root_page = buffer_pool_manager_->FetchPage(last_page_id);
@@ -263,7 +259,6 @@ auto BPLUSTREE_TYPE::InsertWithSplitInternal(Page *page, const KeyType &key, con
   internal->SetSize(old_size / 2);
   split_tree_page->SetSize(old_size - old_size / 2);
   auto push_up_index = temp_buffer[old_size / 2].first;
-  // temp_buffer[old_size / 2].first = 0;
   for (int i = 0; i < old_size; ++i) {
     if (i < old_size / 2) {
       inner_data[i] = temp_buffer[i];
@@ -303,6 +298,28 @@ auto BPLUSTREE_TYPE::InsertWithSplitInternal(Page *page, const KeyType &key, con
     buffer_pool_manager_->UnpinPage(internal_page_id, true);
     delete[] temp_buffer;
     return true;
+  } else {
+    auto parent_page = buffer_pool_manager_->FetchPage(internal->GetParentPageId());
+    auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
+    if (parent_tree_page->GetSize() < parent_tree_page->GetMaxSize()) {
+      if (!InsertInternal(parent_page, push_up_index, split_page_id)) {
+        return false;
+      }
+      split_tree_page->SetParentPageId(internal->GetParentPageId());
+      buffer_pool_manager_->UnpinPage(split_page_id, true);
+      buffer_pool_manager_->UnpinPage(internal_page_id, true);
+      delete[] temp_buffer;
+      return true;
+    } else {
+      if (!InsertWithSplitInternal(parent_page, push_up_index, split_page_id)) {
+        std::cout << "error insert with split internal!\n";
+        return false;
+      }
+      buffer_pool_manager_->UnpinPage(split_page_id, true);
+      buffer_pool_manager_->UnpinPage(internal_page_id, true);
+      delete[] temp_buffer;
+      return true;
+    }
   }
   return false;
 }

@@ -143,7 +143,7 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
     split_tree_page->SetNextPageId(leaf->GetNextPageId());
 
     // store the element in the buffer
-    MappingType *temp_buffer = new MappingType[leaf->GetSize() + 1];
+    auto *temp_buffer = new MappingType[leaf->GetSize() + 1];
 
     for (int i = 0; i < leaf->GetSize(); ++i) {
       if (comparator_(inner_data[i].first, key) == 0) {
@@ -207,6 +207,7 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
         if (!InsertInternal(parent_page, split_inner_data[0].first, split_page_id)) {
           return false;
         }
+        split_tree_page->SetParentPageId(leaf->GetParentPageId());
         buffer_pool_manager_->UnpinPage(split_page_id, true);
         buffer_pool_manager_->UnpinPage(leaf_page_id, true);
         delete[] temp_buffer;

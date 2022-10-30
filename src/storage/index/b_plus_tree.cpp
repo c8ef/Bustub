@@ -51,7 +51,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   // create an empty leaf node, which is also the root
   if (root_page_id_ == INVALID_PAGE_ID) {
     auto new_page = buffer_pool_manager_->NewPage(&root_page_id_);
-    auto page_data = reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE *>(new_page);
+    auto page_data = reinterpret_cast<LeafPage *>(new_page);
     UpdateRootPageId();
     page_data->Init(root_page_id_, INVALID_PAGE_ID, leaf_max_size_);
     page_data->IncreaseSize(1);
@@ -66,7 +66,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   }
 
   auto root_page = buffer_pool_manager_->FetchPage(root_page_id_);
-  auto tree_page = reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE *>(root_page);
+  auto tree_page = reinterpret_cast<LeafPage *>(root_page);
   // root page is leaf page, not full
   if (tree_page->IsLeafPage() && tree_page->GetSize() < tree_page->GetMaxSize()) {
     auto inner_data = reinterpret_cast<MappingType *>(root_page->GetData() + LEAF_PAGE_HEADER_SIZE);
@@ -97,7 +97,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     // root page full, split
     page_id_t split_page_id;
     auto split_page = buffer_pool_manager_->NewPage(&split_page_id);
-    auto split_tree_page = reinterpret_cast<B_PLUS_TREE_LEAF_PAGE_TYPE *>(split_page);
+    auto split_tree_page = reinterpret_cast<LeafPage *>(split_page);
     auto inner_data = reinterpret_cast<MappingType *>(root_page->GetData() + LEAF_PAGE_HEADER_SIZE);
     auto split_inner_data = reinterpret_cast<MappingType *>(split_page->GetData() + LEAF_PAGE_HEADER_SIZE);
 
@@ -137,7 +137,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     // setup parent
     page_id_t parent_page_id;
     auto parent_page = buffer_pool_manager_->NewPage(&parent_page_id);
-    auto parent_tree_page = reinterpret_cast<BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *>(parent_page);
+    auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
     parent_tree_page->Init(parent_page_id, INVALID_PAGE_ID, internal_max_size_);
     auto parent_inner_data =
         reinterpret_cast<std::pair<KeyType, page_id_t> *>(parent_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);

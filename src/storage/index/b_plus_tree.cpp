@@ -441,6 +441,12 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
   }
   auto *leaf = reinterpret_cast<LeafPage *>(page);
 
+  // if not exist, return false
+  if (!RemoveExist(page, key)) {
+    buffer_pool_manager_->UnpinPage(last_page_id, false);
+    return;
+  }
+
   // there is just a root node
   if (leaf->GetParentPageId() == INVALID_PAGE_ID) {
     if (!RemoveInLeaf(page, key)) {
@@ -465,6 +471,87 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
     buffer_pool_manager_->UnpinPage(last_page_id, true);
     return;
   }
+
+  // if has next page
+  if (leaf->GetNextPageId() != INVALID_PAGE_ID) {
+    auto next_page = buffer_pool_manager_->FetchPage(leaf->GetNextPageId());
+    auto next_tree_page = reinterpret_cast<LeafPage *>(next_page);
+
+    // fix in a page
+    if (leaf->GetSize() + next_tree_page->GetSize() <= leaf->GetMaxSize() + 1) {
+      RemoveInLeaf(page, key);
+      RemoveJoin(page, next_page);
+    }
+    // todo reorder
+    // todo just for now
+    buffer_pool_manager_->UnpinPage(leaf->GetNextPageId(), false);
+  }
+  // todo do not have next page
+  // todo just for now
+  buffer_pool_manager_->UnpinPage(last_page_id, false);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::RemoveJoin(Page *page, Page *next_page, Transaction *transaction) -> bool {
+  auto *tree_page = reinterpret_cast<LeafPage *>(page);
+  auto *next_tree_page = reinterpret_cast<LeafPage *>(next_page);
+  auto inner_data = reinterpret_cast<MappingType *>(page->GetData() + LEAF_PAGE_HEADER_SIZE);
+  auto next_inner_data = reinterpret_cast<MappingType *>(next_page->GetData() + LEAF_PAGE_HEADER_SIZE);
+
+  for (int i = 0; i < next_tree_page->GetSize(); ++i) {
+    inner_data[tree_page->GetSize() + i] = next_inner_data[i];
+  }
+  tree_page->IncreaseSize(next_tree_page->GetSize());
+  tree_page->SetNextPageId(next_tree_page->GetNextPageId());
+
+  auto parent_page = buffer_pool_manager_->FetchPage(tree_page->GetParentPageId());
+  auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
+  if (parent_tree_page->GetSize() > parent_tree_page->GetMinSize()) {
+    RemoveInInternal(parent_page, next_page->GetPageId());
+    buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+    buffer_pool_manager_->UnpinPage(next_page->GetPageId(), true);
+    return true;
+  }
+  // todo: parent node join
+  // just for now
+  buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+  buffer_pool_manager_->UnpinPage(next_page->GetPageId(), true);
+  return false;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::RemoveExist(Page *page, const KeyType &key, Transaction *transaction) -> bool {
+  auto tree_page = reinterpret_cast<LeafPage *>(page);
+  auto inner_data = reinterpret_cast<MappingType *>(page->GetData() + LEAF_PAGE_HEADER_SIZE);
+
+  for (int i = 0; i < tree_page->GetSize(); ++i) {
+    if (comparator_(inner_data[i].first, key) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::RemoveInInternal(Page *page, const page_id_t &page_id, Transaction *transaction) -> bool {
+  auto *tree_page = reinterpret_cast<InternalPage *>(page);
+  auto inner_data = reinterpret_cast<std::pair<KeyType, page_id_t> *>(page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
+
+  int remove_pos = 0;
+  for (; remove_pos < tree_page->GetSize(); ++remove_pos) {
+    if (page_id == inner_data[remove_pos].second) {
+      break;
+    }
+  }
+  if (remove_pos == tree_page->GetSize()) {
+    throw std::runtime_error{"remove page_id not in the parent"};
+  }
+  for (int i = remove_pos; i < tree_page->GetSize() - 1; ++i) {
+    inner_data[i] = inner_data[i + 1];
+  }
+  tree_page->IncreaseSize(-1);
+  buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+  return true;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -477,9 +564,6 @@ auto BPLUSTREE_TYPE::RemoveInLeaf(Page *page, const KeyType &key, Transaction *t
     if (comparator_(inner_data[delete_pos].first, key) == 0) {
       break;
     }
-  }
-  if (delete_pos == tree_page->GetSize()) {
-    return false;
   }
   for (int i = delete_pos; i < tree_page->GetSize() - 1; ++i) {
     inner_data[i] = inner_data[i + 1];

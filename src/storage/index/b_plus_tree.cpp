@@ -416,7 +416,25 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {}
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+  if (root_page_id_ == INVALID_PAGE_ID) {
+    throw std::runtime_error("the given tree is empty");
+  }
+  auto page = buffer_pool_manager_->FetchPage(root_page_id_);
+  auto tree_page = reinterpret_cast<BPlusTreePage *>(page);
+  auto last_page_id = root_page_id_;
+
+  while (!tree_page->IsLeafPage()) {
+    auto *inner = reinterpret_cast<InternalPage *>(page);
+    page_id_t child = inner->ValueAt(0);
+    buffer_pool_manager_->UnpinPage(last_page_id, false);
+    last_page_id = child;
+    page = buffer_pool_manager_->FetchPage(last_page_id);
+    tree_page = reinterpret_cast<BPlusTreePage *>(page);
+  }
+
+  return INDEXITERATOR_TYPE(false, buffer_pool_manager_, 0, comparator_, page);
+}
 
 /*
  * Input parameter is low key, find the leaf page that contains the input key
@@ -424,7 +442,41 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE()
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
+  if (root_page_id_ == INVALID_PAGE_ID) {
+    throw std::runtime_error("the given tree is empty");
+  }
+  auto page = buffer_pool_manager_->FetchPage(root_page_id_);
+  auto tree_page = reinterpret_cast<BPlusTreePage *>(page);
+  auto last_page_id = root_page_id_;
+
+  while (!tree_page->IsLeafPage()) {
+    auto *inner = reinterpret_cast<InternalPage *>(page);
+    page_id_t child = INVALID_PAGE_ID;
+    for (int i = 1; i < inner->GetSize(); ++i) {
+      if (comparator_(inner->KeyAt(i), key) > 0) {
+        child = inner->ValueAt(i - 1);
+        break;
+      }
+    }
+    if (child == INVALID_PAGE_ID) {
+      child = inner->ValueAt(tree_page->GetSize() - 1);
+    }
+    buffer_pool_manager_->UnpinPage(last_page_id, false);
+    last_page_id = child;
+    page = buffer_pool_manager_->FetchPage(last_page_id);
+    tree_page = reinterpret_cast<BPlusTreePage *>(page);
+  }
+
+  auto *leaf = reinterpret_cast<LeafPage *>(page);
+  for (int i = 0; i < leaf->GetSize(); ++i) {
+    if (comparator_(key, leaf->KeyAt(i)) == 0) {
+      return INDEXITERATOR_TYPE(false, buffer_pool_manager_, i, comparator_, page);
+    }
+  }
+  buffer_pool_manager_->UnpinPage(last_page_id, false);
+  throw std::runtime_error("the key does not exist in the tree");
+}
 
 /*
  * Input parameter is void, construct an index iterator representing the end
@@ -432,7 +484,7 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE { return IN
  * @return : index iterator
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(); }
+auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE { return INDEXITERATOR_TYPE(true, nullptr, 0, comparator_, nullptr); }
 
 /**
  * @return Page id of the root of this tree

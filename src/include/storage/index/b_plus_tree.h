@@ -71,6 +71,8 @@ class BPlusTree {
 
   auto RemoveInInternal(Page *page, const page_id_t &page_id, Transaction *transaction = nullptr) -> bool;
 
+  auto RemoveInInternalMerge(Page *page, const page_id_t &page_id, Transaction *transaction = nullptr) -> bool;
+
   // return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr) -> bool;
 

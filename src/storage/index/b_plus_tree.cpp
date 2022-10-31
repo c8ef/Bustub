@@ -32,6 +32,7 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return root_page_id_ == INVALID_P
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction) -> bool {
+  std::scoped_lock<std::mutex> l{latch_};
   if (root_page_id_ == INVALID_PAGE_ID) {
     return false;
   }
@@ -79,6 +80,7 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) -> bool {
+  std::scoped_lock<std::mutex> l{latch_};
   std::cout << "debug insert " << key.ToString() << " [" << leaf_max_size_ << "|" << internal_max_size_ << "]\n";
   // the tree is empty
   // create an empty leaf node, which is also the root
@@ -411,6 +413,7 @@ auto BPLUSTREE_TYPE::InsertInternal(Page *page, const KeyType &key, const page_i
  */
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
+  std::scoped_lock<std::mutex> l{latch_};
   std::cout << "debug delete " << key.ToString() << " [" << leaf_max_size_ << "|" << internal_max_size_ << "]\n";
   if (root_page_id_ == INVALID_PAGE_ID) {
     return;
@@ -502,8 +505,8 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
 
   if (leaf->GetSize() + previous_tree_page->GetSize() <= leaf->GetMaxSize() + 1) {
     RemoveInLeaf(page, key);
-    auto temp_temp_page = previous_page;
-    auto temp_page = page;
+    auto temp_page = previous_page;
+    auto temp_temp_page = page;
     RemoveJoin(temp_temp_page, temp_page);
   }
 

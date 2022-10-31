@@ -79,6 +79,7 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) -> bool {
+  std::cout << "debug insert " << key.ToString() << '\n';
   // the tree is empty
   // create an empty leaf node, which is also the root
   if (root_page_id_ == INVALID_PAGE_ID) {
@@ -405,7 +406,67 @@ auto BPLUSTREE_TYPE::InsertInternal(Page *page, const KeyType &key, const page_i
  * necessary.
  */
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {}
+void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
+  std::cout << "debug delete " << key.ToString() << '\n';
+  if (root_page_id_ == INVALID_PAGE_ID) {
+    return;
+  }
+  auto page = buffer_pool_manager_->FetchPage(root_page_id_);
+  auto tree_page = reinterpret_cast<BPlusTreePage *>(page);
+  auto last_page_id = root_page_id_;
+  while (!tree_page->IsLeafPage()) {
+    auto *inner = reinterpret_cast<InternalPage *>(page);
+    page_id_t child = INVALID_PAGE_ID;
+    for (int i = 1; i < inner->GetSize(); ++i) {
+      if (comparator_(inner->KeyAt(i), key) > 0) {
+        child = inner->ValueAt(i - 1);
+        break;
+      }
+    }
+    if (child == INVALID_PAGE_ID) {
+      child = inner->ValueAt(tree_page->GetSize() - 1);
+    }
+    buffer_pool_manager_->UnpinPage(last_page_id, false);
+    last_page_id = child;
+    page = buffer_pool_manager_->FetchPage(last_page_id);
+    tree_page = reinterpret_cast<BPlusTreePage *>(page);
+  }
+  auto *leaf = reinterpret_cast<LeafPage *>(page);
+
+  // there is just a root node
+  if (leaf->GetParentPageId() == INVALID_PAGE_ID) {
+    if (!RemoveInLeaf(page, key)) {
+      // the element is not in leaf
+      return;
+    }
+    if (leaf->GetSize() == 0) {
+      root_page_id_ = INVALID_PAGE_ID;
+    }
+    buffer_pool_manager_->UnpinPage(last_page_id, true);
+    return;
+  }
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::RemoveInLeaf(Page *page, const KeyType &key, Transaction *transaction) -> bool {
+  auto tree_page = reinterpret_cast<LeafPage *>(page);
+  auto inner_data = reinterpret_cast<MappingType *>(page->GetData() + LEAF_PAGE_HEADER_SIZE);
+
+  int delete_pos = 0;
+  for (; delete_pos < tree_page->GetSize(); ++delete_pos) {
+    if (comparator_(inner_data[delete_pos].first, key) == 0) {
+      break;
+    }
+  }
+  if (delete_pos == tree_page->GetSize()) {
+    return false;
+  }
+  for (int i = delete_pos; i < tree_page->GetSize() - 1; ++i) {
+    inner_data[i] = inner_data[i + 1];
+  }
+  tree_page->IncreaseSize(-1);
+  return true;
+}
 
 /*****************************************************************************
  * INDEX ITERATOR
@@ -415,8 +476,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {}
  * index iterator
  * @return : index iterator
  */
-INDEX_TEMPLATE_ARGUMENTS
-auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
+INDEX_TEMPLATE_ARGUMENTS auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
   if (root_page_id_ == INVALID_PAGE_ID) {
     throw std::runtime_error("the given tree is empty");
   }

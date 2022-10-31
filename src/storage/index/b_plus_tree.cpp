@@ -208,6 +208,8 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
   if (parent_tree_page->GetSize() < parent_tree_page->GetMaxSize()) {
     if (!InsertInternal(parent_page, split_inner_data[0].first, split_page_id)) {
       delete[] temp_buffer;
+      buffer_pool_manager_->UnpinPage(split_page_id, true);
+      buffer_pool_manager_->UnpinPage(leaf_page_id, true);
       return false;
     }
     split_tree_page->SetParentPageId(leaf->GetParentPageId());
@@ -218,6 +220,8 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
   }
   if (!InsertWithSplitInternal(parent_page, split_inner_data[0].first, split_page_id)) {
     delete[] temp_buffer;
+    buffer_pool_manager_->UnpinPage(split_page_id, true);
+    buffer_pool_manager_->UnpinPage(leaf_page_id, true);
     return false;
   }
   buffer_pool_manager_->UnpinPage(split_page_id, true);
@@ -412,6 +416,10 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
     return;
   }
   auto page = buffer_pool_manager_->FetchPage(root_page_id_);
+  if (page == nullptr) {
+    throw std::runtime_error{"unable to fetch page " + std::to_string(root_page_id_) + " [" +
+                             std::to_string(buffer_pool_manager_->GetPoolSize()) + "]"};
+  }
   auto tree_page = reinterpret_cast<BPlusTreePage *>(page);
   auto last_page_id = root_page_id_;
   while (!tree_page->IsLeafPage()) {

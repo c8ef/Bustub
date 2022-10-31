@@ -148,6 +148,7 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
     if (comparator_(inner_data[i].first, key) == 0) {
       buffer_pool_manager_->UnpinPage(leaf_page_id, false);
       buffer_pool_manager_->DeletePage(split_page_id);
+      delete[] temp_buffer;
       return false;
     }
     temp_buffer[i] = inner_data[i];
@@ -205,6 +206,7 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
   auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
   if (parent_tree_page->GetSize() < parent_tree_page->GetMaxSize()) {
     if (!InsertInternal(parent_page, split_inner_data[0].first, split_page_id)) {
+      delete[] temp_buffer;
       return false;
     }
     split_tree_page->SetParentPageId(leaf->GetParentPageId());
@@ -214,6 +216,7 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
     return true;
   }
   if (!InsertWithSplitInternal(parent_page, split_inner_data[0].first, split_page_id)) {
+    delete[] temp_buffer;
     return false;
   }
   buffer_pool_manager_->UnpinPage(split_page_id, true);
@@ -242,6 +245,7 @@ auto BPLUSTREE_TYPE::InsertWithSplitInternal(Page *page, const KeyType &key, con
     if (comparator_(inner_data[i].first, key) == 0) {
       buffer_pool_manager_->UnpinPage(internal_page_id, false);
       buffer_pool_manager_->DeletePage(split_page_id);
+      delete[] temp_buffer;
       return false;
     }
     temp_buffer[i] = inner_data[i];
@@ -301,6 +305,7 @@ auto BPLUSTREE_TYPE::InsertWithSplitInternal(Page *page, const KeyType &key, con
   auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
   if (parent_tree_page->GetSize() < parent_tree_page->GetMaxSize()) {
     if (!InsertInternal(parent_page, push_up_index, split_page_id)) {
+      delete[] temp_buffer;
       return false;
     }
     split_tree_page->SetParentPageId(internal->GetParentPageId());
@@ -310,7 +315,7 @@ auto BPLUSTREE_TYPE::InsertWithSplitInternal(Page *page, const KeyType &key, con
     return true;
   }
   if (!InsertWithSplitInternal(parent_page, push_up_index, split_page_id)) {
-    std::cout << "error insert with split internal!\n";
+    delete[] temp_buffer;
     return false;
   }
   buffer_pool_manager_->UnpinPage(split_page_id, true);

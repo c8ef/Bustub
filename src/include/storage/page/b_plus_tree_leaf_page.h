@@ -50,7 +50,22 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
 
+  auto KeyIndex(const KeyType &key, const KeyComparator &comparator) const -> int;
+  auto GetItem(int index) -> const MappingType &;
+  auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &comparator) -> int;
+  auto LookUp(const KeyType &key, ValueType *value, const KeyComparator &comparator) const -> bool;
+  auto RemoveAndDeleteRecord(const KeyType &key, const KeyComparator &comparator) -> int;
+
+  void MoveHalfTo(BPlusTreeLeafPage *target);
+  void MoveAllTo(BPlusTreeLeafPage *target);
+  void MoveFirstToEndOf(BPlusTreeLeafPage *target);
+  void MoveLastToFrontOf(BPlusTreeLeafPage *target);
+
  private:
+  void CopyNFrom(MappingType *items, int size);
+  void CopyLastFrom(const MappingType &item);
+  void CopyFirstFrom(const MappingType &item);
+
   page_id_t next_page_id_;
   // Flexible array member for page data.
   MappingType array_[1];

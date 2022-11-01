@@ -32,7 +32,6 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return root_page_id_ == INVALID_P
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction) -> bool {
-  std::scoped_lock<std::mutex> l{latch_};
   return GetValueInternal(key, result, transaction);
 }
 

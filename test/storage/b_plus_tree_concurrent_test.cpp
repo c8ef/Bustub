@@ -166,11 +166,11 @@ TEST(BPlusTreeConcurrentTest, InsertTest2) {
   (void)header_page;
   // keys to Insert
   std::vector<int64_t> keys;
-  int64_t scale_factor = 100;
+  int64_t scale_factor = 10000;
   for (int64_t key = 1; key < scale_factor; key++) {
     keys.push_back(key);
   }
-  LaunchParallelTest(2, InsertHelperSplit, &tree, keys, 2);
+  LaunchParallelTest(10, InsertHelperSplit, &tree, keys, 2);
 
   std::vector<RID> rids;
   GenericKey<8> index_key;
@@ -218,13 +218,20 @@ TEST(BPlusTreeConcurrentTest, DeleteTest1) {
   auto header_page = bpm->NewPage(&page_id);
   (void)header_page;
   // sequential insert
-  std::vector<int64_t> keys = {1, 2, 3, 4, 5};
+  std::vector<int64_t> keys;
+  int64_t scale_factor = 10000;
+  for (int64_t key = 1; key < scale_factor; key++) {
+    keys.push_back(key);
+  }
   InsertHelper(&tree, keys);
 
-  std::vector<int64_t> remove_keys = {1, 5, 3, 4};
-  LaunchParallelTest(2, DeleteHelper, &tree, remove_keys);
+  std::vector<int64_t> remove_keys;
+  for (int64_t key = 1; key < scale_factor / 2; key++) {
+    remove_keys.push_back(key);
+  }
+  LaunchParallelTest(10, DeleteHelper, &tree, remove_keys);
 
-  int64_t start_key = 2;
+  int64_t start_key = scale_factor / 2;
   int64_t current_key = start_key;
   int64_t size = 0;
   index_key.SetFromInteger(start_key);
@@ -236,7 +243,7 @@ TEST(BPlusTreeConcurrentTest, DeleteTest1) {
     size = size + 1;
   }
 
-  EXPECT_EQ(size, 1);
+  EXPECT_EQ(size, scale_factor / 2);
 
   bpm->UnpinPage(HEADER_PAGE_ID, true);
   delete disk_manager;

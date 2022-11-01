@@ -15,6 +15,7 @@ INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::IndexIterator(bool is_end, BufferPoolManager *bpm, int curr_slot, const KeyComparator &comparator,
                                   Page *page)
     : is_end_{is_end}, bpm_{bpm}, curr_slot_{curr_slot}, comparator_{comparator}, page_{page} {
+  std::cout << "init index interator!!\n";
   auto inner_data = reinterpret_cast<MappingType *>(page->GetData() + LEAF_PAGE_HEADER_SIZE);
   curr_ = &inner_data[curr_slot];
 }
@@ -34,6 +35,7 @@ auto INDEXITERATOR_TYPE::operator*() -> const MappingType & {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
+  std::cout << "Usage index iterator!++\n";
   if (is_end_) {
     throw std::runtime_error("can not increment end iterator");
   }

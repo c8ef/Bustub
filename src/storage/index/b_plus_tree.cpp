@@ -39,6 +39,7 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValueInternal(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction)
     -> bool {
+  std::cout << "debug get value\n";
   if (root_page_id_ == INVALID_PAGE_ID) {
     return false;
   }
@@ -107,6 +108,11 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   auto root_page = buffer_pool_manager_->FetchPage(root_page_id_);
   auto tree_page = reinterpret_cast<BPlusTreePage *>(root_page);
   // root page is leaf page, not full
+  // std::cout << "is this pointer null? "
+  //           << " " << (root_page == nullptr) << " " << (tree_page == nullptr) << " " << root_page_id_ << '\n';
+  if (tree_page == nullptr) {
+    return false;
+  }
   if (tree_page->IsLeafPage() && tree_page->GetSize() < tree_page->GetMaxSize()) {
     return InsertInLeaf(root_page, key, value, transaction);
   }
@@ -147,6 +153,9 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
   auto leaf_page_id = page->GetPageId();
   page_id_t split_page_id;
   auto split_page = buffer_pool_manager_->NewPage(&split_page_id);
+  if (split_page == nullptr) {
+    throw std::runtime_error{"cannot new a page in the buffer pool!"};
+  }
   auto split_tree_page = reinterpret_cast<LeafPage *>(split_page);
   auto inner_data = reinterpret_cast<MappingType *>(page->GetData() + LEAF_PAGE_HEADER_SIZE);
   auto split_inner_data = reinterpret_cast<MappingType *>(split_page->GetData() + LEAF_PAGE_HEADER_SIZE);
@@ -223,11 +232,13 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
       delete[] temp_buffer;
       buffer_pool_manager_->UnpinPage(split_page_id, true);
       buffer_pool_manager_->UnpinPage(leaf_page_id, true);
+      buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
       return false;
     }
     split_tree_page->SetParentPageId(leaf->GetParentPageId());
     buffer_pool_manager_->UnpinPage(split_page_id, true);
     buffer_pool_manager_->UnpinPage(leaf_page_id, true);
+    buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
     delete[] temp_buffer;
     return true;
   }
@@ -235,10 +246,12 @@ auto BPLUSTREE_TYPE::InsertWithSplit(Page *page, const KeyType &key, const Value
     delete[] temp_buffer;
     buffer_pool_manager_->UnpinPage(split_page_id, true);
     buffer_pool_manager_->UnpinPage(leaf_page_id, true);
+    buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
     return false;
   }
   buffer_pool_manager_->UnpinPage(split_page_id, true);
   buffer_pool_manager_->UnpinPage(leaf_page_id, true);
+  buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
   delete[] temp_buffer;
   return true;
 }
@@ -323,21 +336,29 @@ auto BPLUSTREE_TYPE::InsertWithSplitInternal(Page *page, const KeyType &key, con
   auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
   if (parent_tree_page->GetSize() < parent_tree_page->GetMaxSize()) {
     if (!InsertInternal(parent_page, push_up_index, split_page_id)) {
+      buffer_pool_manager_->UnpinPage(split_page_id, true);
+      buffer_pool_manager_->UnpinPage(internal_page_id, true);
+      buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
       delete[] temp_buffer;
       return false;
     }
     split_tree_page->SetParentPageId(internal->GetParentPageId());
     buffer_pool_manager_->UnpinPage(split_page_id, true);
     buffer_pool_manager_->UnpinPage(internal_page_id, true);
+    buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
     delete[] temp_buffer;
     return true;
   }
   if (!InsertWithSplitInternal(parent_page, push_up_index, split_page_id)) {
+    buffer_pool_manager_->UnpinPage(split_page_id, true);
+    buffer_pool_manager_->UnpinPage(internal_page_id, true);
+    buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
     delete[] temp_buffer;
     return false;
   }
   buffer_pool_manager_->UnpinPage(split_page_id, true);
   buffer_pool_manager_->UnpinPage(internal_page_id, true);
+  buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
   delete[] temp_buffer;
   return true;
 }
@@ -354,7 +375,7 @@ auto BPLUSTREE_TYPE::InsertInLeaf(Page *page, const KeyType &key, const ValueTyp
     int insert_pos = 0;
     for (; insert_pos < tree_page->GetSize(); ++insert_pos) {
       if (comparator_(inner_data[insert_pos].first, key) == 0) {
-        buffer_pool_manager_->UnpinPage(root_page_id_, false);
+        buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
         return false;
       }
       if (comparator_(key, inner_data[insert_pos].first) < 0) {
@@ -389,7 +410,7 @@ auto BPLUSTREE_TYPE::InsertInternal(Page *page, const KeyType &key, const page_i
   int insert_pos = 1;
   for (; insert_pos < tree_page->GetSize(); ++insert_pos) {
     if (comparator_(inner_data[insert_pos].first, key) == 0) {
-      buffer_pool_manager_->UnpinPage(root_page_id_, false);
+      buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
       return false;
     }
     if (comparator_(key, inner_data[insert_pos].first) < 0) {
@@ -457,8 +478,6 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
 
   // if not exist, return false
   if (!RemoveExist(page, key)) {
-    std::cout << "get here\n";
-
     buffer_pool_manager_->UnpinPage(last_page_id, false);
     return;
   }
@@ -539,7 +558,8 @@ auto BPLUSTREE_TYPE::RemoveReorder(Page *page, Page *next_page, Transaction *tra
     inner_data[i + tree_page->GetSize()] = next_inner_data[i];
   }
   tree_page->IncreaseSize(trans_size);
-  for (int i = 0; i < next_tree_page->GetSize(); ++i) {
+  // avoid buffer overflow
+  for (int i = 0; i + trans_size < next_tree_page->GetSize(); ++i) {
     next_inner_data[i] = next_inner_data[i + trans_size];
   }
   next_tree_page->IncreaseSize(-trans_size);
@@ -672,6 +692,9 @@ auto BPLUSTREE_TYPE::RemoveInInternalMerge(Page *page, const page_id_t &page_id,
     std::cout << "debug internal page size: " << tree_page->GetSize() << ' ' << pair_tree_page->GetSize() << '\n';
 
     // parent fit in a page
+    if (!tree_page) {
+      throw std::runtime_error{"tree page is nullptr!"};
+    }
     if (tree_page->GetSize() + pair_tree_page->GetSize() <= tree_page->GetMaxSize()) {
       std::cout << "debug parent fit in a page " << reverse << '\n';
       if (!reverse) {
@@ -724,7 +747,6 @@ auto BPLUSTREE_TYPE::RemoveInInternalMerge(Page *page, const page_id_t &page_id,
       buffer_pool_manager_->UnpinPage(pair_page->GetPageId(), true);
       return true;
     }
-    // todo internal reorder
     if (!reverse) {
       RemoveReorderInternal(page, pair_page, pull_back_key);
     } else {

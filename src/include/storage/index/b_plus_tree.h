@@ -69,6 +69,8 @@ class BPlusTree {
 
   auto RemoveReorder(Page *page, Page *next_page, Transaction *transaction = nullptr) -> bool;
 
+  auto RemoveReorderInternal(Page *page, Page *next_page, KeyType pull_key, Transaction *transaction = nullptr) -> bool;
+
   auto RemoveInLeaf(Page *page, const KeyType &key, Transaction *transaction = nullptr) -> bool;
 
   auto RemoveInInternal(Page *page, const page_id_t &page_id, Transaction *transaction = nullptr) -> bool;

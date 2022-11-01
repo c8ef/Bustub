@@ -667,51 +667,67 @@ auto BPLUSTREE_TYPE::RemoveInInternalMerge(Page *page, const page_id_t &page_id,
         reinterpret_cast<std::pair<KeyType, page_id_t> *>(pair_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
     pair_inner_data[0].first = pull_back_key;
 
-    if (!reverse) {
-      for (int i = 0; i < pair_tree_page->GetSize(); ++i) {
-        inner_data[tree_page->GetSize() + i] = pair_inner_data[i];
+    std::cout << "debug internal page size: " << tree_page->GetSize() << ' ' << pair_tree_page->GetSize() << '\n';
+
+    // parent fit in a page
+    if (tree_page->GetSize() + pair_tree_page->GetSize() <= tree_page->GetMaxSize()) {
+      std::cout << "debug parent fit in a page " << reverse << '\n';
+      if (!reverse) {
+        for (int i = 0; i < pair_tree_page->GetSize(); ++i) {
+          inner_data[tree_page->GetSize() + i] = pair_inner_data[i];
+        }
+        tree_page->IncreaseSize(pair_tree_page->GetSize());
+      } else {
+        for (int i = 0; i < tree_page->GetSize(); ++i) {
+          pair_inner_data[pair_tree_page->GetSize() + i] = inner_data[i];
+        }
+        pair_tree_page->IncreaseSize(tree_page->GetSize());
       }
-      tree_page->IncreaseSize(pair_tree_page->GetSize());
-    } else {
-      for (int i = 0; i < tree_page->GetSize(); ++i) {
-        pair_inner_data[tree_page->GetSize() + i] = inner_data[i];
+      if (!reverse) {
+        for (int i = 0; i < tree_page->GetSize(); ++i) {
+          auto temp_page = buffer_pool_manager_->FetchPage(inner_data[i].second);
+          auto *temp_tree_page = reinterpret_cast<BPlusTreePage *>(temp_page);
+          temp_tree_page->SetParentPageId(page->GetPageId());
+          buffer_pool_manager_->UnpinPage(inner_data[i].second, true);
+        }
+      } else {
+        for (int i = 0; i < pair_tree_page->GetSize(); ++i) {
+          auto temp_page = buffer_pool_manager_->FetchPage(pair_inner_data[i].second);
+          auto *temp_tree_page = reinterpret_cast<BPlusTreePage *>(temp_page);
+          temp_tree_page->SetParentPageId(pair_page->GetPageId());
+          buffer_pool_manager_->UnpinPage(pair_inner_data[i].second, true);
+        }
       }
-      pair_tree_page->IncreaseSize(tree_page->GetSize());
+      if (!reverse) {
+        if (parent_tree_page->GetSize() > parent_tree_page->GetMinSize() + 1) {
+          RemoveInInternal(parent_page, pair_page->GetPageId());
+          buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+          buffer_pool_manager_->UnpinPage(pair_page->GetPageId(), true);
+          return true;
+        }
+      } else {
+        if (parent_tree_page->GetSize() > parent_tree_page->GetMinSize() + 1) {
+          RemoveInInternal(parent_page, page->GetPageId());
+          buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+          buffer_pool_manager_->UnpinPage(pair_page->GetPageId(), true);
+          return true;
+        }
+      }
+      if (!reverse) {
+        RemoveInInternalMerge(parent_page, pair_page->GetPageId());
+      } else {
+        RemoveInInternalMerge(parent_page, page->GetPageId());
+      }
+      buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+      buffer_pool_manager_->UnpinPage(pair_page->GetPageId(), true);
+      return true;
     }
+    // todo internal reorder
     if (!reverse) {
-      for (int i = 0; i < tree_page->GetSize(); ++i) {
-        auto temp_page = buffer_pool_manager_->FetchPage(inner_data[i].second);
-        auto *temp_tree_page = reinterpret_cast<BPlusTreePage *>(temp_page);
-        temp_tree_page->SetParentPageId(page->GetPageId());
-        buffer_pool_manager_->UnpinPage(inner_data[i].second, true);
-      }
+      RemoveReorderInternal(page, pair_page, pull_back_key);
     } else {
-      for (int i = 0; i < pair_tree_page->GetSize(); ++i) {
-        auto temp_page = buffer_pool_manager_->FetchPage(inner_data[i].second);
-        auto *temp_tree_page = reinterpret_cast<BPlusTreePage *>(temp_page);
-        temp_tree_page->SetParentPageId(pair_page->GetPageId());
-        buffer_pool_manager_->UnpinPage(inner_data[i].second, true);
-      }
-    }
-    if (!reverse) {
-      if (parent_tree_page->GetSize() > parent_tree_page->GetMinSize() + 1) {
-        RemoveInInternal(parent_page, pair_page->GetPageId());
-        buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
-        buffer_pool_manager_->UnpinPage(pair_page->GetPageId(), true);
-        return true;
-      }
-    } else {
-      if (parent_tree_page->GetSize() > parent_tree_page->GetMinSize() + 1) {
-        RemoveInInternal(parent_page, page->GetPageId());
-        buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
-        buffer_pool_manager_->UnpinPage(pair_page->GetPageId(), true);
-        return true;
-      }
-    }
-    if (!reverse) {
-      RemoveInInternalMerge(parent_page, pair_page->GetPageId());
-    } else {
-      RemoveInInternalMerge(parent_page, page->GetPageId());
+      std::swap(page, pair_page);
+      RemoveReorderInternal(page, pair_page, pull_back_key);
     }
     buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
     buffer_pool_manager_->UnpinPage(pair_page->GetPageId(), true);
@@ -728,6 +744,72 @@ auto BPLUSTREE_TYPE::RemoveInInternalMerge(Page *page, const page_id_t &page_id,
     return true;
   }
   return false;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::RemoveReorderInternal(Page *page, Page *next_page, KeyType pull_key, Transaction *transaction)
+    -> bool {
+  auto *tree_page = reinterpret_cast<InternalPage *>(page);
+  auto *next_tree_page = reinterpret_cast<InternalPage *>(next_page);
+  auto inner_data = reinterpret_cast<std::pair<KeyType, page_id_t> *>(page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
+  auto next_inner_data =
+      reinterpret_cast<std::pair<KeyType, page_id_t> *>(next_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
+
+  next_inner_data[0].first = pull_key;
+
+  int trans_size = (next_tree_page->GetSize() - tree_page->GetSize()) / 2;
+  for (int i = 0; i < trans_size; ++i) {
+    inner_data[i + tree_page->GetSize()] = next_inner_data[i];
+  }
+  tree_page->IncreaseSize(trans_size);
+  for (int i = 0; i < next_tree_page->GetSize(); ++i) {
+    next_inner_data[i] = next_inner_data[i + trans_size];
+  }
+  next_tree_page->IncreaseSize(-trans_size);
+
+  for (int i = 0; i < tree_page->GetSize(); ++i) {
+    page_id_t temp_page_id = inner_data[i].second;
+    auto temp_page = buffer_pool_manager_->FetchPage(temp_page_id);
+    auto *temp_tree_page = reinterpret_cast<BPlusTreePage *>(temp_page);
+    temp_tree_page->SetParentPageId(page->GetPageId());
+    buffer_pool_manager_->UnpinPage(temp_page_id, true);
+  }
+
+  for (int i = 0; i < next_tree_page->GetSize(); ++i) {
+    page_id_t temp_page_id = next_inner_data[i].second;
+    auto temp_page = buffer_pool_manager_->FetchPage(temp_page_id);
+    auto *temp_tree_page = reinterpret_cast<BPlusTreePage *>(temp_page);
+    temp_tree_page->SetParentPageId(next_page->GetPageId());
+    buffer_pool_manager_->UnpinPage(temp_page_id, true);
+  }
+
+  {
+    auto parent_page = buffer_pool_manager_->FetchPage(next_tree_page->GetParentPageId());
+    auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
+    auto parent_inner_data =
+        reinterpret_cast<std::pair<KeyType, page_id_t> *>(parent_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
+
+    for (int i = 0; i < parent_tree_page->GetSize(); ++i) {
+      if (parent_inner_data[i].second == next_page->GetPageId()) {
+        parent_inner_data[i].first = next_inner_data[0].first;
+      }
+    }
+    buffer_pool_manager_->UnpinPage(next_tree_page->GetParentPageId(), true);
+  }
+  {
+    auto parent_page = buffer_pool_manager_->FetchPage(tree_page->GetParentPageId());
+    auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
+    auto parent_inner_data =
+        reinterpret_cast<std::pair<KeyType, page_id_t> *>(parent_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
+
+    for (int i = 0; i < parent_tree_page->GetSize(); ++i) {
+      if (parent_inner_data[i].second == page->GetPageId()) {
+        parent_inner_data[i].first = inner_data[0].first;
+      }
+    }
+    buffer_pool_manager_->UnpinPage(next_tree_page->GetParentPageId(), true);
+  }
+  return true;
 }
 
 INDEX_TEMPLATE_ARGUMENTS

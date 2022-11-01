@@ -35,7 +35,6 @@ namespace bustub {
  */
 INDEX_TEMPLATE_ARGUMENTS
 class BPlusTree {
-  friend class INDEXITERATOR_TYPE;
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
 
@@ -49,41 +48,11 @@ class BPlusTree {
   // Insert a key-value pair into this B+ tree.
   auto Insert(const KeyType &key, const ValueType &value, Transaction *transaction = nullptr) -> bool;
 
-  auto InsertInLeaf(Page *page, const KeyType &key, const ValueType &value, Transaction *transaction = nullptr) -> bool;
-
-  auto InsertInternal(Page *page, const KeyType &key, const page_id_t &value, Transaction *transaction = nullptr)
-      -> bool;
-
-  auto InsertWithSplit(Page *page, const KeyType &key, const ValueType &value, Transaction *transaction = nullptr)
-      -> bool;
-
-  auto InsertWithSplitInternal(Page *page, const KeyType &key, const page_id_t &value,
-                               Transaction *transaction = nullptr) -> bool;
-
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key, Transaction *transaction = nullptr);
 
-  auto RemoveExist(Page *page, const KeyType &key, Transaction *transaction = nullptr) -> bool;
-
-  auto RemoveJoin(Page *page, Page *next_page, Transaction *transaction = nullptr) -> bool;
-
-  auto RemoveReorder(Page *page, Page *next_page, Transaction *transaction = nullptr) -> bool;
-
-  auto RemoveReorderPushUp(Page *page, const KeyType &key, page_id_t given_page_id, Transaction *transaction = nullptr)
-      -> bool;
-
-  auto RemoveReorderInternal(Page *page, Page *next_page, KeyType pull_key, Transaction *transaction = nullptr) -> bool;
-
-  auto RemoveInLeaf(Page *page, const KeyType &key, Transaction *transaction = nullptr) -> bool;
-
-  auto RemoveInInternal(Page *page, const page_id_t &page_id, Transaction *transaction = nullptr) -> bool;
-
-  auto RemoveInInternalMerge(Page *page, const page_id_t &page_id, Transaction *transaction = nullptr) -> bool;
-
   // return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr) -> bool;
-
-  auto GetValueInternal(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction = nullptr) -> bool;
 
   // return the page id of the root node
   auto GetRootPageId() -> page_id_t;
@@ -120,7 +89,6 @@ class BPlusTree {
   KeyComparator comparator_;
   int leaf_max_size_;
   int internal_max_size_;
-  mutable std::mutex latch_;
 };
 
 }  // namespace bustub

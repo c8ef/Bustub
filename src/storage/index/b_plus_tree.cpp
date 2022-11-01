@@ -457,6 +457,8 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
 
   // if not exist, return false
   if (!RemoveExist(page, key)) {
+    std::cout << "get here\n";
+
     buffer_pool_manager_->UnpinPage(last_page_id, false);
     return;
   }
@@ -474,7 +476,6 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
     buffer_pool_manager_->UnpinPage(last_page_id, true);
     return;
   }
-
   // have parent and just delete
   if (leaf->GetSize() - 1 >= leaf->GetMinSize()) {
     if (!RemoveInLeaf(page, key)) {
@@ -490,7 +491,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
   if (leaf->GetNextPageId() != INVALID_PAGE_ID) {
     auto next_page = buffer_pool_manager_->FetchPage(leaf->GetNextPageId());
     auto next_tree_page = reinterpret_cast<LeafPage *>(next_page);
-
+    std::cout << "debug next page exist\n";
     // fit in a page
     if (leaf->GetSize() + next_tree_page->GetSize() <= leaf->GetMaxSize() + 1) {
       RemoveInLeaf(page, key);
@@ -545,29 +546,30 @@ auto BPLUSTREE_TYPE::RemoveReorder(Page *page, Page *next_page, Transaction *tra
 
   {
     auto parent_page = buffer_pool_manager_->FetchPage(next_tree_page->GetParentPageId());
-    auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
-    auto parent_inner_data =
-        reinterpret_cast<std::pair<KeyType, page_id_t> *>(parent_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
-
-    for (int i = 0; i < parent_tree_page->GetSize(); ++i) {
-      if (parent_inner_data[i].second == next_page->GetPageId()) {
-        parent_inner_data[i].first = next_inner_data[0].first;
-      }
-    }
-    buffer_pool_manager_->UnpinPage(next_tree_page->GetParentPageId(), true);
+    RemoveReorderPushUp(parent_page, next_inner_data[0].first, next_page->GetPageId());
   }
   {
     auto parent_page = buffer_pool_manager_->FetchPage(tree_page->GetParentPageId());
-    auto parent_tree_page = reinterpret_cast<InternalPage *>(parent_page);
-    auto parent_inner_data =
-        reinterpret_cast<std::pair<KeyType, page_id_t> *>(parent_page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
+    RemoveReorderPushUp(parent_page, inner_data[0].first, page->GetPageId());
+  }
+  return true;
+}
 
-    for (int i = 0; i < parent_tree_page->GetSize(); ++i) {
-      if (parent_inner_data[i].second == page->GetPageId()) {
-        parent_inner_data[i].first = inner_data[0].first;
-      }
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::RemoveReorderPushUp(Page *page, const KeyType &key, page_id_t given_page_id,
+                                         Transaction *transaction) -> bool {
+  auto tree_page = reinterpret_cast<InternalPage *>(page);
+  auto inner_data = reinterpret_cast<std::pair<KeyType, page_id_t> *>(page->GetData() + INTERNAL_PAGE_HEADER_SIZE);
+
+  for (int i = 0; i < tree_page->GetSize(); ++i) {
+    if (inner_data[i].second == given_page_id) {
+      inner_data[i].first = key;
     }
-    buffer_pool_manager_->UnpinPage(next_tree_page->GetParentPageId(), true);
+  }
+  buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+  if (tree_page->GetParentPageId() != INVALID_PAGE_ID) {
+    auto parent_page = buffer_pool_manager_->FetchPage(tree_page->GetParentPageId());
+    RemoveReorderPushUp(parent_page, key, page->GetPageId());
   }
   return true;
 }

@@ -61,11 +61,14 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) -> bool {
-  std::scoped_lock<std::mutex> l{root_page_id_latch_};
+  {
+    // only lock update root page id operation
+    std::scoped_lock<std::mutex> l{root_page_id_latch_};
 
-  if (IsEmpty()) {
-    StartNewTree(key, value);
-    return true;
+    if (IsEmpty()) {
+      StartNewTree(key, value);
+      return true;
+    }
   }
   return InsertIntoLeaf(key, value, transaction);
 }
@@ -90,17 +93,118 @@ void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, Transaction *txn) -> bool {
-  return false;
+  auto [leaf_page, is_root_page_id_latched] = FindLeafPageByOperation(key, Operation::kInsert, txn);
+  auto *node = reinterpret_cast<LeafPage *>(leaf_page);
+
+  auto size = node->GetSize();
+  auto new_size = node->Insert(key, value, comparator_);
+
+  // already exist
+  if (new_size == size) {
+    if (is_root_page_id_latched) {
+      root_page_id_latch_.unlock();
+    }
+    ClearTransactionPageSetAndUnpinEach(txn);
+    leaf_page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), false);
+    return false;
+  }
+
+  // not full
+  if (new_size < leaf_max_size_) {
+    leaf_page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), true);
+    return true;
+  }
+
+  // leaf is full
+  auto sibling_leaf_node = Split(node);
+  sibling_leaf_node->SetNextPageId(node->GetNextPageId());
+  node->SetNextPageId(sibling_leaf_node->GetPageId());
+
+  auto push_up_key = sibling_leaf_node->KeyAt(0);
+  InsertIntoParent(node, push_up_key, sibling_leaf_node, txn);
+
+  // after insert in parent, release the lock of leaf
+  leaf_page->WUnlatch();
+  buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), true);
+  buffer_pool_manager_->UnpinPage(sibling_leaf_node->GetPageId(), true);
+  return true;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node,
-                                      Transaction *txn) {}
+                                      Transaction *txn) {
+  if (old_node->IsRootPage()) {
+    auto page = buffer_pool_manager_->NewPage(&root_page_id_);
+    if (page == nullptr) {
+      throw std::runtime_error{"cannot allocate new page in the buffer pool!"};
+    }
 
+    auto *new_root = reinterpret_cast<InternalPage *>(page->GetData());
+    new_root->Init(root_page_id_, INVALID_PAGE_ID, internal_max_size_);
+    new_root->PopulateNewRoot(old_node->GetPageId(), key, new_node->GetPageId());
+
+    old_node->SetParentPageId(new_root->GetPageId());
+    new_node->SetParentPageId(new_root->GetPageId());
+
+    buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+    UpdateRootPageId(0);
+
+    // if leaf page is going to split to new root
+    // root latch has already held
+    root_page_id_latch_.unlock();
+    ClearTransactionPageSet(txn);
+    return;
+  }
+
+  auto parent_page = buffer_pool_manager_->FetchPage(old_node->GetParentPageId());
+  auto *parent_node = reinterpret_cast<InternalPage *>(parent_page->GetData());
+  auto new_size = parent_node->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
+
+  if (new_size < internal_max_size_) {
+    // parent not split
+    // free all latches
+    ClearTransactionPageSet(txn);
+    buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
+    return;
+  }
+
+  auto parent_new_sibling_node = Split(parent_node);
+  KeyType new_key = parent_new_sibling_node->KeyAt(0);
+  InsertIntoParent(parent_node, new_key, parent_new_sibling_node, txn);
+
+  buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
+  buffer_pool_manager_->UnpinPage(parent_new_sibling_node->GetPageId(), true);
+}
+
+// use another template argument to handle both LeafPage and InternalPage
 INDEX_TEMPLATE_ARGUMENTS
 template <typename N>
 auto BPLUSTREE_TYPE::Split(N *node) -> N * {
-  return nullptr;
+  page_id_t page_id;
+  auto page = buffer_pool_manager_->NewPage(&page_id);
+  if (page == nullptr) {
+    throw std::runtime_error{"cannot allocate new page in the buffer pool!"};
+  }
+
+  N *new_node = reinterpret_cast<N *>(page->GetData());
+  new_node->SetPageType(node->GetPageType());
+
+  if (node->IsLeafPage()) {
+    auto *leaf = reinterpret_cast<LeafPage *>(node);
+    auto *new_leaf = reinterpret_cast<LeafPage *>(new_node);
+
+    new_leaf->Init(page->GetPageId(), node->GetParentPageId(), leaf_max_size_);
+    leaf->MoveHalfTo(new_leaf);
+  } else {
+    auto *internal = reinterpret_cast<InternalPage *>(node);
+    auto *new_internal = reinterpret_cast<InternalPage *>(new_node);
+
+    new_internal->Init(page->GetPageId(), node->GetParentPageId(), internal_max_size_);
+    internal->MoveHalfTo(new_internal, buffer_pool_manager_);
+  }
+  return new_node;
 }
 
 /*****************************************************************************

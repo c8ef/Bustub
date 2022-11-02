@@ -77,6 +77,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::PopulateNewRoot(const ValueType &old_value,
   array_[0].second = old_value;
   array_[1].first = new_key;
   array_[1].second = new_value;
+  SetSize(2);
 }
 
 // insert a new pair after the pair with the old_value
@@ -146,6 +147,9 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyNFrom(MappingType *items, int size, Buf
 
   for (int i = 0; i < size; ++i) {
     auto page = bpm->FetchPage(ValueAt(i + GetSize()));
+    if (page == nullptr) {
+      throw std::runtime_error{"cannot allocate page from buffer pool"};
+    }
     auto *node = reinterpret_cast<BPlusTreePage *>(page->GetData());
     node->SetParentPageId(GetPageId());
     bpm->UnpinPage(page->GetPageId(), true);
@@ -159,6 +163,9 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::CopyLastFrom(const MappingType &pair, Buffe
   IncreaseSize(1);
 
   auto page = bpm->FetchPage(pair.second);
+  if (page == nullptr) {
+    throw std::runtime_error{"cannot allocate page from buffer pool"};
+  }
   auto *node = reinterpret_cast<BPlusTreePage *>(page->GetData());
   node->SetParentPageId(GetPageId());
   bpm->UnpinPage(page->GetPageId(), true);

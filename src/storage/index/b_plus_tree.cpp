@@ -33,7 +33,20 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return root_page_id_ == INVALID_P
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *transaction) -> bool {
-  return false;
+  auto leaf_page = FindLeafPageByOperation(key, Operation::kSearch, transaction).first;
+  auto *node = reinterpret_cast<LeafPage *>(leaf_page->GetData());
+
+  ValueType v;
+  auto exist = node->LookUp(key, &v, comparator_);
+
+  leaf_page->RUnlatch();
+  buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), false);
+
+  if (!exist) {
+    return false;
+  }
+  result->push_back(v);
+  return true;
 }
 
 /*****************************************************************************

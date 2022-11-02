@@ -23,6 +23,8 @@ namespace bustub {
 
 #define BPLUSTREE_TYPE BPlusTree<KeyType, ValueType, KeyComparator>
 
+enum class Operation { kSearch, kInsert, kDelete };
+
 /**
  * Main class providing the API for the Interactive B+ Tree.
  *
@@ -82,6 +84,15 @@ class BPlusTree {
 
   void ToString(BPlusTreePage *page, BufferPoolManager *bpm) const;
 
+  void ClearTransactionPageSetAndUnpinEach(Transaction *txn) const;
+
+  void ClearTransactionPageSet(Transaction *txn) const;
+
+  // return is root page latched
+  auto FindLeafPageByOperation(const KeyType &key, Operation operation = Operation::kSearch,
+                               Transaction *transaction = nullptr, bool left_most = false, bool right_most = false)
+      -> std::pair<Page *, bool>;
+
   // member variable
   std::string index_name_;
   page_id_t root_page_id_;
@@ -89,6 +100,7 @@ class BPlusTree {
   KeyComparator comparator_;
   int leaf_max_size_;
   int internal_max_size_;
+  mutable std::mutex root_page_id_latch_;
 };
 
 }  // namespace bustub

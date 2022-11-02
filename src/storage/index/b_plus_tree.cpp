@@ -218,7 +218,171 @@ auto BPLUSTREE_TYPE::Split(N *node) -> N * {
  * necessary.
  */
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {}
+void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *transaction) {
+  if (IsEmpty()) {
+    return;
+  }
+
+  auto [leaf_page, is_root_page_id_latched] = FindLeafPageByOperation(key, Operation::kDelete, transaction);
+  auto *node = reinterpret_cast<LeafPage *>(leaf_page->GetData());
+
+  // given key doesn't exist
+  if (node->GetSize() == node->RemoveAndDeleteRecord(key, comparator_)) {
+    if (is_root_page_id_latched) {
+      root_page_id_latch_.unlock();
+    }
+    ClearTransactionPageSetAndUnpinEach(transaction);
+    leaf_page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), false);
+    return;
+  }
+
+  auto node_should_delete = CoalesceOrRedistribute(node, transaction, is_root_page_id_latched);
+  leaf_page->WUnlatch();
+
+  if (node_should_delete) {
+    transaction->AddIntoDeletedPageSet(node->GetPageId());
+  }
+  buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), true);
+  std::for_each(transaction->GetDeletedPageSet()->begin(), transaction->GetDeletedPageSet()->end(),
+                [this](const page_id_t page_id) { buffer_pool_manager_->DeletePage(page_id); });
+  transaction->GetDeletedPageSet()->clear();
+}
+
+// return true means need delete
+INDEX_TEMPLATE_ARGUMENTS
+template <typename N>
+auto BPLUSTREE_TYPE::CoalesceOrRedistribute(N *node, Transaction *txn, bool is_root_page_id_latched) -> bool {
+  if (node->IsRootPage()) {
+    auto root_should_delete = AdjustRoot(node, is_root_page_id_latched);
+    ClearTransactionPageSet(txn);
+    return root_should_delete;
+  }
+
+  if (node->GetSize() >= node->GetMinSize()) {
+    ClearTransactionPageSet(txn);
+    return false;
+  }
+
+  auto parent_page = buffer_pool_manager_->FetchPage(node->GetParentPageId());
+  auto *parent_node = reinterpret_cast<InternalPage *>(parent_page->GetData());
+  auto index = parent_node->ValueIndex(node->GetPageId());
+
+  auto sibling_page = buffer_pool_manager_->FetchPage(parent_node->ValueAt(index == 0 ? 1 : index - 1));
+  sibling_page->WLatch();
+
+  N *sibling_node = reinterpret_cast<N *>(sibling_page->GetData());
+
+  if (node->GetSize() + sibling_node->GetSize() >= node->GetMaxSize()) {
+    Redistribute(sibling_node, node, parent_node, index, is_root_page_id_latched);
+    ClearTransactionPageSet(txn);
+    buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
+    sibling_page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(sibling_page->GetPageId(), true);
+    return false;
+  }
+
+  auto parent_node_should_delete = Coalesce(&sibling_node, &node, &parent_node, index, txn, is_root_page_id_latched);
+
+  if (parent_node_should_delete) {
+    txn->AddIntoDeletedPageSet(parent_node->GetPageId());
+  }
+  buffer_pool_manager_->UnpinPage(parent_page->GetPageId(), true);
+  sibling_page->WUnlatch();
+  buffer_pool_manager_->UnpinPage(sibling_page->GetPageId(), true);
+  return true;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+template <typename N>
+auto BPLUSTREE_TYPE::Coalesce(N **neighbor_node, N **node,
+                              BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> **parent, int index,
+                              Transaction *txn, bool is_root_page_id_latched) -> bool {
+  auto key_index = index;
+  if (index == 0) {
+    key_index = 1;
+    // sibling | node
+    std::swap(node, neighbor_node);
+  }
+
+  auto middle_key = (*parent)->KeyAt(index);
+
+  if ((*node)->IsLeafPage()) {
+    auto *leaf_node = reinterpret_cast<LeafPage *>(*node);
+    auto *prev_leaf_node = reinterpret_cast<LeafPage *>(*neighbor_node);
+    leaf_node->MoveAllTo(prev_leaf_node);
+  } else {
+    auto *leaf_node = reinterpret_cast<InternalPage *>(*node);
+    auto *prev_leaf_node = reinterpret_cast<InternalPage *>(*neighbor_node);
+    leaf_node->MoveAllTo(prev_leaf_node, middle_key, buffer_pool_manager_);
+  }
+
+  (*parent)->Remove(key_index);
+
+  return CoalesceOrRedistribute(*parent, txn, is_root_page_id_latched);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+template <typename N>
+void BPLUSTREE_TYPE::Redistribute(N *neighbor_node, N *node,
+                                  BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent, int index,
+                                  bool is_root_page_id_latched) {
+  if (is_root_page_id_latched) {
+    root_page_id_latch_.unlock();
+  }
+
+  if (node->IsLeafPage()) {
+    auto *leaf_node = reinterpret_cast<LeafPage *>(node);
+    auto *neighbor_leaf_node = reinterpret_cast<LeafPage *>(neighbor_node);
+
+    if (index == 0) {
+      // node | sibling
+      neighbor_leaf_node->MoveFirstToEndOf(leaf_node);
+      parent->SetKeyAt(1, neighbor_leaf_node->KeyAt(0));
+    } else {
+      // sibling | node
+      neighbor_leaf_node->MoveLastToFrontOf(leaf_node);
+      parent->SetKeyAt(index, leaf_node->KeyAt(0));
+    }
+  } else {
+    auto *internal_node = reinterpret_cast<InternalPage *>(node);
+    auto *neighbor_internal_node = reinterpret_cast<InternalPage *>(neighbor_node);
+
+    if (index == 0) {
+      neighbor_internal_node->MoveFirstToEndOf(internal_node, parent->KeyAt(1), buffer_pool_manager_);
+      parent->SetKeyAt(1, neighbor_internal_node->KeyAt(0));
+    } else {
+      neighbor_internal_node->MoveLastToFrontOf(internal_node, parent->KeyAt(index), buffer_pool_manager_);
+      parent->SetKeyAt(index, internal_node->KeyAt(0));
+    }
+  }
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::AdjustRoot(BPlusTreePage *node, bool is_root_page_id_latched) -> bool {
+  // 1. delete the last element in the root page, but the root page still has a child
+  // 2. delete the last child in the whole tree
+  if (!node->IsLeafPage() && node->GetSize() == 1) {
+    auto *root_node = reinterpret_cast<InternalPage *>(node);
+    auto only_child_page = buffer_pool_manager_->FetchPage(root_node->ValueAt(0));
+    auto *only_child_node = reinterpret_cast<BPlusTreePage *>(only_child_page->GetData());
+    only_child_node->SetParentPageId(INVALID_PAGE_ID);
+
+    root_page_id_ = only_child_node->GetPageId();
+    UpdateRootPageId(0);
+
+    if (is_root_page_id_latched) {
+      root_page_id_latch_.unlock();
+    }
+    buffer_pool_manager_->UnpinPage(only_child_page->GetPageId(), true);
+    return true;
+  }
+
+  if (is_root_page_id_latched) {
+    root_page_id_latch_.unlock();
+  }
+  return node->IsLeafPage() && node->GetSize() == 0;
+}
 
 /*****************************************************************************
  * INDEX ITERATOR

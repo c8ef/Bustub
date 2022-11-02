@@ -90,6 +90,21 @@ class BPlusTree {
   auto Split(N *node) -> N *;
   // insert helper end
 
+  // delete helper start
+  template <typename N>
+  auto CoalesceOrRedistribute(N *node, Transaction *txn = nullptr, bool is_root_page_id_latched = false) -> bool;
+
+  template <typename N>
+  auto Coalesce(N **neighbor_node, N **node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> **parent,
+                int index, Transaction *txn = nullptr, bool is_root_page_id_latched = false) -> bool;
+
+  template <typename N>
+  void Redistribute(N *neighbor_node, N *node, BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator> *parent,
+                    int index, bool is_root_page_id_latched = false);
+
+  auto AdjustRoot(BPlusTreePage *node, bool is_root_page_id_latched = false) -> bool;
+  // delete helper end
+
   void UpdateRootPageId(int insert_record = 0);
 
   /* Debug Routines for FREE!! */

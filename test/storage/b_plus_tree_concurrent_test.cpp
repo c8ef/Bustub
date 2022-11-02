@@ -152,7 +152,7 @@ TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest1) {
   remove("test.log");
 }
 
-TEST(BPlusTreeConcurrentTest, InsertTest2) {
+TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest2) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -203,7 +203,7 @@ TEST(BPlusTreeConcurrentTest, InsertTest2) {
   remove("test.log");
 }
 
-TEST(BPlusTreeConcurrentTest, DeleteTest1) {
+TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest1) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -295,7 +295,7 @@ TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest2) {
   remove("test.log");
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_MixTest) {
+TEST(BPlusTreeConcurrentTest, MixTest) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -311,27 +311,35 @@ TEST(BPlusTreeConcurrentTest, DISABLED_MixTest) {
   auto header_page = bpm->NewPage(&page_id);
   (void)header_page;
   // first, populate index
-  std::vector<int64_t> keys = {1, 2, 3, 4, 5};
-  InsertHelper(&tree, keys);
+  std::vector<int64_t> keys;
+  int64_t scale_factor = 10000;
+  for (int64_t key = 1; key < scale_factor; key++) {
+    keys.push_back(key);
+  }
+  // InsertHelper(&tree, keys);
 
   // concurrent insert
-  keys.clear();
-  for (int i = 6; i <= 10; i++) {
-    keys.push_back(i);
-  }
-  LaunchParallelTest(1, InsertHelper, &tree, keys);
+  // keys.clear();
+  // for (int i = 6; i <= 10; i++) {
+  //   keys.push_back(i);
+  // }
+  LaunchParallelTest(10, InsertHelper, &tree, keys);
   // concurrent delete
-  std::vector<int64_t> remove_keys = {1, 4, 3, 5, 6};
-  LaunchParallelTest(1, DeleteHelper, &tree, remove_keys);
+  // std::vector<int64_t> remove_keys = {1, 4, 3, 5, 6};
+  std::vector<int64_t> remove_keys;
+  for (int64_t key = 1; key < scale_factor / 2; key++) {
+    remove_keys.push_back(key);
+  }
+  LaunchParallelTest(10, DeleteHelper, &tree, remove_keys);
 
-  int64_t start_key = 2;
+  int64_t start_key = scale_factor / 2;
   int64_t size = 0;
   index_key.SetFromInteger(start_key);
   for (auto iterator = tree.Begin(index_key); iterator != tree.End(); ++iterator) {
     size = size + 1;
   }
 
-  EXPECT_EQ(size, 5);
+  EXPECT_EQ(size, scale_factor / 2);
 
   bpm->UnpinPage(HEADER_PAGE_ID, true);
   delete disk_manager;

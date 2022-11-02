@@ -78,6 +78,18 @@ class BPlusTree {
   void RemoveFromFile(const std::string &file_name, Transaction *transaction = nullptr);
 
  private:
+  // insert helper function
+  void StartNewTree(const KeyType &key, const ValueType &value);
+
+  auto InsertIntoLeaf(const KeyType &key, const ValueType &value, Transaction *txn = nullptr) -> bool;
+
+  void InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node,
+                        Transaction *txn = nullptr);
+
+  template <typename N>
+  auto Split(N *node) -> N *;
+  // insert helper end
+
   void UpdateRootPageId(int insert_record = 0);
 
   /* Debug Routines for FREE!! */

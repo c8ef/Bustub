@@ -61,7 +61,46 @@ auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transaction *transaction) -> bool {
+  std::scoped_lock<std::mutex> l{root_page_id_latch_};
+
+  if (IsEmpty()) {
+    StartNewTree(key, value);
+    return true;
+  }
+  return InsertIntoLeaf(key, value, transaction);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::StartNewTree(const KeyType &key, const ValueType &value) {
+  auto page = buffer_pool_manager_->NewPage(&root_page_id_);
+  if (page == nullptr) {
+    throw std::runtime_error{"cannot allocate new page in the buffer pool!"};
+  }
+
+  auto *leaf = reinterpret_cast<LeafPage *>(page->GetData());
+  leaf->Init(root_page_id_, INVALID_PAGE_ID, leaf_max_size_);
+  leaf->Insert(key, value, comparator_);
+
+  buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+  // if insert record != 0
+  // then will insert a new record
+  // otherwise update record
+  UpdateRootPageId(1);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto BPLUSTREE_TYPE::InsertIntoLeaf(const KeyType &key, const ValueType &value, Transaction *txn) -> bool {
   return false;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::InsertIntoParent(BPlusTreePage *old_node, const KeyType &key, BPlusTreePage *new_node,
+                                      Transaction *txn) {}
+
+INDEX_TEMPLATE_ARGUMENTS
+template <typename N>
+auto BPLUSTREE_TYPE::Split(N *node) -> N * {
+  return nullptr;
 }
 
 /*****************************************************************************

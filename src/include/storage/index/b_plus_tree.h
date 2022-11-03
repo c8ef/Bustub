@@ -114,8 +114,6 @@ class BPlusTree {
 
   void ClearTransactionPageSetAndUnpinEach(Transaction *txn) const;
 
-  void ClearTransactionPageSet(Transaction *txn) const;
-
   // return is root page latched
   auto FindLeafPageByOperation(const KeyType &key, Operation operation = Operation::kSearch,
                                Transaction *transaction = nullptr, bool left_most = false, bool right_most = false)

@@ -653,12 +653,6 @@ void BPLUSTREE_TYPE::ClearTransactionPageSetAndUnpinEach(Transaction *txn) const
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::ClearTransactionPageSet(Transaction *txn) const {
-  std::for_each(txn->GetPageSet()->begin(), txn->GetPageSet()->end(), [](Page *page) { page->WUnlatch(); });
-  txn->GetPageSet()->clear();
-}
-
-INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::FindLeafPageByOperation(const KeyType &key, Operation operation, Transaction *transaction,
                                              bool left_most, bool right_most) -> std::pair<Page *, bool> {
   root_page_id_latch_.lock();

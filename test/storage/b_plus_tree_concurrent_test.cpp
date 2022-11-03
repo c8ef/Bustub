@@ -166,7 +166,7 @@ TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest2) {
   (void)header_page;
   // keys to Insert
   std::vector<int64_t> keys;
-  int64_t scale_factor = 200000;
+  int64_t scale_factor = 2000000;
   for (int64_t key = 1; key < scale_factor; key++) {
     keys.push_back(key);
   }
@@ -203,7 +203,7 @@ TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest2) {
   remove("test.log");
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest1) {
+TEST(BPlusTreeConcurrentTest, DeleteTest1) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());
@@ -219,7 +219,7 @@ TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest1) {
   (void)header_page;
   // sequential insert
   std::vector<int64_t> keys;
-  int64_t scale_factor = 10000;
+  int64_t scale_factor = 100000;
   for (int64_t key = 1; key < scale_factor; key++) {
     keys.push_back(key);
   }
@@ -295,7 +295,7 @@ TEST(BPlusTreeConcurrentTest, DISABLED_DeleteTest2) {
   remove("test.log");
 }
 
-TEST(BPlusTreeConcurrentTest, MixTest) {
+TEST(BPlusTreeConcurrentTest, DISABLED_MixTest) {
   // create KeyComparator and index schema
   auto key_schema = ParseCreateStatement("a bigint");
   GenericComparator<8> comparator(key_schema.get());

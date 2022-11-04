@@ -33,7 +33,7 @@ void AggregationExecutor::Init() {
   while (child_->Next(&child_tuple, &rid)) {
     aht_.InsertCombine(MakeAggregateKey(&child_tuple), MakeAggregateValue(&child_tuple));
   }
-  if (aht_.Begin() == aht_.End() && plan_->GetGroupBys().size() == 0) {
+  if (aht_.Begin() == aht_.End() && plan_->GetGroupBys().empty()) {
     aht_.InsertWithoutCombine(MakeAggregateKey(&child_tuple), aht_.GenerateInitialAggregateValue());
   }
   aht_iterator_ = aht_.Begin();

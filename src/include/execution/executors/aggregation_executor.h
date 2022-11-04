@@ -97,16 +97,14 @@ class SimpleAggregationHashTable {
               Value(TypeId::INTEGER, result->aggregates_[i].GetAs<int>() + input.aggregates_[i].GetAs<int>());
           break;
         case AggregationType::MinAggregate:
-          if (result->aggregates_[i].IsNull()) {
-            result->aggregates_[i] = input.aggregates_[i];
-          } else if (result->aggregates_[i].CompareLessThan(input.aggregates_[i]) == CmpBool::CmpFalse) {
+          if (result->aggregates_[i].IsNull() ||
+              result->aggregates_[i].CompareLessThan(input.aggregates_[i]) == CmpBool::CmpFalse) {
             result->aggregates_[i] = input.aggregates_[i];
           }
           break;
         case AggregationType::MaxAggregate:
-          if (result->aggregates_[i].IsNull()) {
-            result->aggregates_[i] = input.aggregates_[i];
-          } else if (result->aggregates_[i].CompareGreaterThan(input.aggregates_[i]) == CmpBool::CmpFalse) {
+          if (result->aggregates_[i].IsNull() ||
+              result->aggregates_[i].CompareGreaterThan(input.aggregates_[i]) == CmpBool::CmpFalse) {
             result->aggregates_[i] = input.aggregates_[i];
           }
           break;

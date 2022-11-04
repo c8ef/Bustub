@@ -18,7 +18,7 @@ namespace bustub {
 
 InsertExecutor::InsertExecutor(ExecutorContext *exec_ctx, const InsertPlanNode *plan,
                                std::unique_ptr<AbstractExecutor> &&child_executor)
-    : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)), inserted_(false) {}
+    : AbstractExecutor(exec_ctx), plan_(plan), child_executor_(std::move(child_executor)) {}
 
 void InsertExecutor::Init() { child_executor_->Init(); }
 
@@ -53,7 +53,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   }
 
   std::vector<Value> values{};
-  values.push_back(Value(TypeId::INTEGER, insert_num));
+  values.emplace_back(Value(TypeId::INTEGER, insert_num));
   *tuple = Tuple{values, &GetOutputSchema()};
   return true;
 }

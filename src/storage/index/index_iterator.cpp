@@ -13,18 +13,25 @@ namespace bustub {
  */
 INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::IndexIterator(BufferPoolManager *bpm, Page *page, int idx) : bpm_{bpm}, page_(page), idx_{idx} {
-  leaf_ = reinterpret_cast<LeafPage *>(page->GetData());
+  if (page != nullptr) {
+    leaf_ = reinterpret_cast<LeafPage *>(page->GetData());
+  }
 }
 
 INDEX_TEMPLATE_ARGUMENTS
 INDEXITERATOR_TYPE::~IndexIterator() {
-  page_->RUnlatch();
-  bpm_->UnpinPage(page_->GetPageId(), false);
+  if (page_ != nullptr) {
+    page_->RUnlatch();
+    bpm_->UnpinPage(page_->GetPageId(), false);
+  }
 }
 
 INDEX_TEMPLATE_ARGUMENTS
 auto INDEXITERATOR_TYPE::IsEnd() -> bool {
-  return leaf_->GetNextPageId() == INVALID_PAGE_ID && idx_ == leaf_->GetSize();
+  if (page_ != nullptr) {
+    return leaf_->GetNextPageId() == INVALID_PAGE_ID && idx_ == leaf_->GetSize();
+  }
+  return true;
 }
 
 INDEX_TEMPLATE_ARGUMENTS auto INDEXITERATOR_TYPE::operator*() -> const MappingType & { return leaf_->GetItem(idx_); }
@@ -48,7 +55,7 @@ auto INDEXITERATOR_TYPE::operator++() -> INDEXITERATOR_TYPE & {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto INDEXITERATOR_TYPE::operator==(const IndexIterator &itr) const -> bool {
-  return leaf_->GetPageId() == itr.leaf_->GetPageId() && idx_ == itr.idx_;
+  return (idx_ == -1 && itr.idx_ == -1) || (leaf_->GetPageId() == itr.leaf_->GetPageId() && idx_ == itr.idx_);
 }
 
 INDEX_TEMPLATE_ARGUMENTS

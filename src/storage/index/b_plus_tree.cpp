@@ -397,6 +397,9 @@ auto BPLUSTREE_TYPE::AdjustRoot(BPlusTreePage *node, bool is_root_page_id_latche
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
   auto left_most_page = FindLeafPageByOperation(KeyType(), Operation::kSearch, nullptr, true, false).first;
+  if (left_most_page == nullptr) {
+    return INDEXITERATOR_TYPE(buffer_pool_manager_, nullptr, -1);
+  }
   return INDEXITERATOR_TYPE(buffer_pool_manager_, left_most_page, 0);
 }
 
@@ -408,6 +411,9 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
   auto leaf_page = FindLeafPageByOperation(key, Operation::kSearch).first;
+  if (leaf_page == nullptr) {
+    return INDEXITERATOR_TYPE(buffer_pool_manager_, nullptr, -1);
+  }
   auto *leaf_node = reinterpret_cast<LeafPage *>(leaf_page->GetData());
   auto idx = leaf_node->KeyIndex(key, comparator_);
   return INDEXITERATOR_TYPE(buffer_pool_manager_, leaf_page, idx);
@@ -421,6 +427,9 @@ auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::End() -> INDEXITERATOR_TYPE {
   auto right_most_page = FindLeafPageByOperation(KeyType(), Operation::kSearch, nullptr, false, true).first;
+  if (right_most_page == nullptr) {
+    return INDEXITERATOR_TYPE(buffer_pool_manager_, nullptr, -1);
+  }
   auto leaf_node = reinterpret_cast<LeafPage *>(right_most_page->GetData());
   return INDEXITERATOR_TYPE(buffer_pool_manager_, right_most_page, leaf_node->GetSize());
 }
@@ -657,7 +666,10 @@ auto BPLUSTREE_TYPE::FindLeafPageByOperation(const KeyType &key, Operation opera
                                              bool left_most, bool right_most) -> std::pair<Page *, bool> {
   root_page_id_latch_.lock();
   auto is_root_page_id_latched = true;
-  assert(root_page_id_ != INVALID_PAGE_ID);
+  if (root_page_id_ == INVALID_PAGE_ID) {
+    root_page_id_latch_.unlock();
+    return {nullptr, false};
+  }
 
   auto page = buffer_pool_manager_->FetchPage(root_page_id_);
   auto *node = reinterpret_cast<BPlusTreePage *>(page);

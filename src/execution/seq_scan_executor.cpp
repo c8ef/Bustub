@@ -20,7 +20,9 @@ SeqScanExecutor::SeqScanExecutor(ExecutorContext *exec_ctx, const SeqScanPlanNod
       plan_(plan),
       table_iter_(exec_ctx->GetCatalog()->GetTable(plan->GetTableOid())->table_->Begin(exec_ctx->GetTransaction())) {}
 
-void SeqScanExecutor::Init() {}
+void SeqScanExecutor::Init() {
+  table_iter_ = exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid())->table_->Begin(exec_ctx_->GetTransaction());
+}
 
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (table_iter_ == exec_ctx_->GetCatalog()->GetTable(plan_->GetTableOid())->table_->End()) {

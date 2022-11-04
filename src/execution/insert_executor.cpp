@@ -34,7 +34,7 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   std::string table_name = exec_ctx_->GetCatalog()->GetTable(plan_->TableOid())->name_;
   std::vector<IndexInfo *> index_vector;
   for (const auto &index : exec_ctx_->GetCatalog()->GetTableIndexes(table_name)) {
-    if (index->name_ == table_name) {
+    if (index->table_name_ == table_name) {
       index_vector.push_back(index);
     }
   }
@@ -46,7 +46,9 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
         ->table_->InsertTuple(child_tuple, rid, exec_ctx_->GetTransaction());
 
     for (auto index : index_vector) {
-      index->index_->InsertEntry(child_tuple, *rid, exec_ctx_->GetTransaction());
+      index->index_->InsertEntry(child_tuple.KeyFromTuple(child_executor_->GetOutputSchema(),
+                                                          *index->index_->GetKeySchema(), index->index_->GetKeyAttrs()),
+                                 *rid, exec_ctx_->GetTransaction());
     }
   }
 

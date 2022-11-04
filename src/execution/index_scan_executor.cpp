@@ -19,7 +19,11 @@ IndexScanExecutor::IndexScanExecutor(ExecutorContext *exec_ctx, const IndexScanP
           exec_ctx_->GetCatalog()->GetIndex(plan->GetIndexOid())->index_.get())),
       tree_iter_(tree_->GetBeginIterator()) {}
 
-void IndexScanExecutor::Init() {}
+void IndexScanExecutor::Init() {
+  tree_ = dynamic_cast<BPlusTreeIndexForOneIntegerColumn *>(
+      exec_ctx_->GetCatalog()->GetIndex(plan_->GetIndexOid())->index_.get());
+  tree_iter_ = tree_->GetBeginIterator();
+}
 
 auto IndexScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (tree_iter_ == tree_->GetEndIterator()) {

@@ -34,6 +34,9 @@ void NestedLoopJoinExecutor::Init() {
   left_executor_->Init();
   right_executor_->Init();
 
+  left_match_ = false;
+  final_ = false;
+
   RID rid;
   left_executor_->Next(&left_tuple_, &rid);
 }

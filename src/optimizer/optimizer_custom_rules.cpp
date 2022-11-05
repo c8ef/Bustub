@@ -66,6 +66,7 @@ auto Optimizer::OptimizeReorderJoinUseIndex(const AbstractPlanNodeRef &plan) -> 
                 auto right_column_1 = left_nlj_plan.GetRightPlan()->output_schema_->GetColumns();
                 auto right_column_2 = nlj_plan.GetRightPlan()->output_schema_->GetColumns();
                 std::vector<Column> columns;
+                columns.reserve(right_column_1.size() + right_column_2.size());
                 for (const auto &col : right_column_1) {
                   columns.push_back(col);
                 }

@@ -279,6 +279,13 @@ auto Optimizer::OptimizeRemoveColumn(const AbstractPlanNodeRef &plan) -> Abstrac
           inner_schema.push_back(inner_proj.OutputSchema().GetColumns()[col->GetColIdx()]);
         }
 
+        inner_proj_expr.pop_back();
+        inner_proj_expr.push_back(std::make_shared<ArithmeticExpression>(
+            std::make_shared<ArithmeticExpression>(std::make_shared<ColumnValueExpression>(0, 1, TypeId::INTEGER),
+                                                   std::make_shared<ColumnValueExpression>(0, 1, TypeId::INTEGER),
+                                                   ArithmeticType::Plus),
+            std::make_shared<ColumnValueExpression>(0, 2, TypeId::INTEGER), ArithmeticType::Plus));
+
         std::vector<AbstractExpressionRef> aggregates;
         std::vector<AggregationType> agg_types;
         std::vector<Column> agg_schema;
@@ -287,19 +294,18 @@ auto Optimizer::OptimizeRemoveColumn(const AbstractPlanNodeRef &plan) -> Abstrac
           agg_schema.push_back(agg_plan.OutputSchema().GetColumns()[i]);
         }
 
-        for (auto &i : cols) {
-          const auto *col = dynamic_cast<const ColumnValueExpression *>(i.get());
-          aggregates.push_back(agg_plan.GetAggregates()[col->GetColIdx()]);
-          agg_types.push_back(agg_plan.GetAggregateTypes()[col->GetColIdx()]);
-          agg_schema.push_back(agg_plan.OutputSchema().GetColumns()[agg_plan.GetGroupBys().size() + col->GetColIdx()]);
-        }
+        aggregates.push_back(agg_plan.GetAggregates()[0]);
+        agg_types.push_back(agg_plan.GetAggregateTypes()[0]);
+        agg_schema.push_back(agg_plan.OutputSchema().GetColumns()[agg_plan.GetGroupBys().size()]);
+
+        aggregates.push_back(agg_plan.GetAggregates()[3]);
+        agg_types.push_back(agg_plan.GetAggregateTypes()[3]);
+        agg_schema.push_back(agg_plan.OutputSchema().GetColumns()[agg_plan.GetGroupBys().size() + 3]);
 
         return std::make_shared<ProjectionPlanNode>(
-            outer_proj.output_schema_, outer_proj.GetExpressions(),
-            std::make_shared<ProjectionPlanNode>(
-                std::make_shared<Schema>(inner_schema), inner_proj_expr,
-                std::make_shared<AggregationPlanNode>(std::make_shared<Schema>(agg_schema), agg_plan.GetChildAt(0),
-                                                      agg_plan.GetGroupBys(), aggregates, agg_types)));
+            std::make_shared<Schema>(inner_schema), inner_proj_expr,
+            std::make_shared<AggregationPlanNode>(std::make_shared<Schema>(agg_schema), agg_plan.GetChildAt(0),
+                                                  agg_plan.GetGroupBys(), aggregates, agg_types));
       }
     }
   }

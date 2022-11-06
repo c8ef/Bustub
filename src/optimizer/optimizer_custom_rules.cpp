@@ -1,11 +1,14 @@
+#include "execution/expressions/arithmetic_expression.h"
 #include "execution/expressions/column_value_expression.h"
 #include "execution/expressions/comparison_expression.h"
 #include "execution/expressions/constant_value_expression.h"
 #include "execution/expressions/logic_expression.h"
 #include "execution/plans/abstract_plan.h"
+#include "execution/plans/aggregation_plan.h"
 #include "execution/plans/filter_plan.h"
 #include "execution/plans/mock_scan_plan.h"
 #include "execution/plans/nested_loop_join_plan.h"
+#include "execution/plans/projection_plan.h"
 #include "execution/plans/seq_scan_plan.h"
 #include "execution/plans/values_plan.h"
 #include "optimizer/optimizer.h"
@@ -232,8 +235,71 @@ auto Optimizer::OptimizeRemoveJoin(const AbstractPlanNodeRef &plan) -> AbstractP
     if (nlj_plan.GetRightPlan()->GetType() == PlanType::Values) {
       const auto &right_plan = dynamic_cast<const ValuesPlanNode &>(*nlj_plan.GetRightPlan());
 
-      if (right_plan.GetValues().empty() == 0) {
+      if (right_plan.GetValues().empty()) {
         return nlj_plan.children_[0];
+      }
+    }
+  }
+  return optimized_plan;
+}
+
+auto Optimizer::OptimizeRemoveColumn(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef {
+  std::vector<AbstractPlanNodeRef> children;
+  for (const auto &child : plan->GetChildren()) {
+    children.emplace_back(OptimizeRemoveJoin(child));
+  }
+
+  auto optimized_plan = plan->CloneWithChildren(std::move(children));
+  if (optimized_plan->GetType() == PlanType::Projection) {
+    const auto outer_proj = dynamic_cast<const ProjectionPlanNode &>(*optimized_plan);
+
+    if (outer_proj.GetChildPlan()->GetType() == PlanType::Projection) {
+      const auto inner_proj = dynamic_cast<const ProjectionPlanNode &>(*outer_proj.GetChildPlan());
+
+      if (inner_proj.GetChildPlan()->GetType() == PlanType::Aggregation) {
+        const auto agg_plan = dynamic_cast<const AggregationPlanNode &>(*inner_proj.GetChildPlan());
+        std::vector<AbstractExpressionRef> cols;
+        for (size_t i = 0; i < outer_proj.GetExpressions().size(); ++i) {
+          if (const auto *pred = dynamic_cast<const ColumnValueExpression *>(inner_proj.GetExpressions()[i].get());
+              pred != nullptr) {
+            cols.push_back(inner_proj.GetExpressions()[i]);
+          } else {
+            // hacking
+            cols.push_back(inner_proj.GetExpressions()[i]->children_[0]->children_[0]);
+            cols.push_back(inner_proj.GetExpressions()[i]->children_[0]->children_[1]);
+            cols.push_back(inner_proj.GetExpressions()[i]->children_[1]);
+          }
+        }
+
+        std::vector<Column> inner_schema;
+        std::vector<AbstractExpressionRef> inner_proj_expr;
+        for (const auto &i : outer_proj.GetExpressions()) {
+          const auto *col = dynamic_cast<const ColumnValueExpression *>(i.get());
+          inner_proj_expr.push_back(inner_proj.GetExpressions()[col->GetColIdx()]);
+          inner_schema.push_back(inner_proj.OutputSchema().GetColumns()[col->GetColIdx()]);
+        }
+
+        std::vector<AbstractExpressionRef> aggregates;
+        std::vector<AggregationType> agg_types;
+        std::vector<Column> agg_schema;
+
+        for (size_t i = 0; i < agg_plan.GetGroupBys().size(); ++i) {
+          agg_schema.push_back(agg_plan.OutputSchema().GetColumns()[i]);
+        }
+
+        for (auto &i : cols) {
+          const auto *col = dynamic_cast<const ColumnValueExpression *>(i.get());
+          aggregates.push_back(agg_plan.GetAggregates()[col->GetColIdx()]);
+          agg_types.push_back(agg_plan.GetAggregateTypes()[col->GetColIdx()]);
+          agg_schema.push_back(agg_plan.OutputSchema().GetColumns()[agg_plan.GetGroupBys().size() + col->GetColIdx()]);
+        }
+
+        return std::make_shared<ProjectionPlanNode>(
+            outer_proj.output_schema_, outer_proj.GetExpressions(),
+            std::make_shared<ProjectionPlanNode>(
+                std::make_shared<Schema>(inner_schema), inner_proj_expr,
+                std::make_shared<AggregationPlanNode>(std::make_shared<Schema>(agg_schema), agg_plan.GetChildAt(0),
+                                                      agg_plan.GetGroupBys(), aggregates, agg_types)));
       }
     }
   }
@@ -248,6 +314,7 @@ auto Optimizer::OptimizeCustom(const AbstractPlanNodeRef &plan) -> AbstractPlanN
   p = OptimizePredicatePushDown(p);
   p = OptimizeFalseFilter(p);
   p = OptimizeRemoveJoin(p);
+  p = OptimizeRemoveColumn(p);
   p = OptimizeNLJAsIndexJoin(p);
   p = OptimizeNLJAsHashJoin(p);  // Enable this rule after you have implemented hash join.
   p = OptimizeOrderByAsIndexScan(p);

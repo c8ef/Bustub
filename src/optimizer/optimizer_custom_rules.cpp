@@ -1,11 +1,13 @@
 #include "execution/expressions/column_value_expression.h"
 #include "execution/expressions/comparison_expression.h"
+#include "execution/expressions/constant_value_expression.h"
 #include "execution/expressions/logic_expression.h"
 #include "execution/plans/abstract_plan.h"
 #include "execution/plans/filter_plan.h"
 #include "execution/plans/mock_scan_plan.h"
 #include "execution/plans/nested_loop_join_plan.h"
 #include "execution/plans/seq_scan_plan.h"
+#include "execution/plans/values_plan.h"
 #include "optimizer/optimizer.h"
 
 // Note for 2022 Fall: You can add all optimizer rule implementations and apply the rules as you want in this file. Note
@@ -180,12 +182,72 @@ auto Optimizer::OptimizePredicatePushDown(const AbstractPlanNodeRef &plan) -> Ab
   return optimized_plan;
 }
 
+auto Optimizer::IsPredicateFalse(const AbstractExpression &expr) -> bool {
+  if (const auto *compare_expr = dynamic_cast<const ComparisonExpression *>(&expr); compare_expr != nullptr) {
+    if (const auto *left_expr = dynamic_cast<const ConstantValueExpression *>(compare_expr->children_[0].get());
+        left_expr != nullptr) {
+      if (const auto *right_expr = dynamic_cast<const ConstantValueExpression *>(compare_expr->children_[1].get());
+          right_expr != nullptr) {
+        if (compare_expr->comp_type_ == ComparisonType::Equal) {
+          if (left_expr->val_.CastAs(TypeId::INTEGER).GetAs<int>() !=
+              right_expr->val_.CastAs(TypeId::INTEGER).GetAs<int>()) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+auto Optimizer::OptimizeFalseFilter(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef {
+  std::vector<AbstractPlanNodeRef> children;
+  for (const auto &child : plan->GetChildren()) {
+    children.emplace_back(OptimizeFalseFilter(child));
+  }
+
+  auto optimized_plan = plan->CloneWithChildren(std::move(children));
+
+  if (optimized_plan->GetType() == PlanType::Filter) {
+    const auto &filter_plan = dynamic_cast<const FilterPlanNode &>(*optimized_plan);
+
+    if (IsPredicateFalse(*filter_plan.GetPredicate())) {
+      return std::make_shared<ValuesPlanNode>(filter_plan.children_[0]->output_schema_,
+                                              std::vector<std::vector<AbstractExpressionRef>>{});
+    }
+  }
+  return optimized_plan;
+}
+
+auto Optimizer::OptimizeRemoveJoin(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef {
+  std::vector<AbstractPlanNodeRef> children;
+  for (const auto &child : plan->GetChildren()) {
+    children.emplace_back(OptimizeRemoveJoin(child));
+  }
+
+  auto optimized_plan = plan->CloneWithChildren(std::move(children));
+
+  if (optimized_plan->GetType() == PlanType::NestedLoopJoin) {
+    const auto &nlj_plan = dynamic_cast<const NestedLoopJoinPlanNode &>(*optimized_plan);
+    if (nlj_plan.GetRightPlan()->GetType() == PlanType::Values) {
+      const auto &right_plan = dynamic_cast<const ValuesPlanNode &>(*nlj_plan.GetRightPlan());
+
+      if (right_plan.GetValues().empty() == 0) {
+        return nlj_plan.children_[0];
+      }
+    }
+  }
+  return optimized_plan;
+}
+
 auto Optimizer::OptimizeCustom(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef {
   auto p = plan;
   p = OptimizeMergeProjection(p);
   p = OptimizeMergeFilterNLJ(p);
   p = OptimizeReorderJoinUseIndex(p);
   p = OptimizePredicatePushDown(p);
+  p = OptimizeFalseFilter(p);
+  p = OptimizeRemoveJoin(p);
   p = OptimizeNLJAsIndexJoin(p);
   p = OptimizeNLJAsHashJoin(p);  // Enable this rule after you have implemented hash join.
   p = OptimizeOrderByAsIndexScan(p);

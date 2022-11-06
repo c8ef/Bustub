@@ -80,6 +80,8 @@ class Optimizer {
   /** @brief check if the predicate is true::boolean */
   auto IsPredicateTrue(const AbstractExpression &expr) -> bool;
 
+  auto IsPredicateFalse(const AbstractExpression &expr) -> bool;
+
   /**
    * @brief optimize order by as index scan if there's an index on a table
    */
@@ -97,6 +99,10 @@ class Optimizer {
   auto OptimizeReorderJoinUseIndex(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef;
 
   auto OptimizePredicatePushDown(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef;
+
+  auto OptimizeFalseFilter(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef;
+
+  auto OptimizeRemoveJoin(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef;
 
   /**
    * @brief get the estimated cardinality for a table based on the table name. Useful when join reordering. BusTub

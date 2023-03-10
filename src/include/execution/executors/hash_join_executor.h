@@ -12,8 +12,9 @@
 
 #pragma once
 
+#include "unordered_dense.h"
+
 #include <memory>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -59,7 +60,7 @@ class HashJoinExecutor : public AbstractExecutor {
   const HashJoinPlanNode *plan_;
   std::unique_ptr<AbstractExecutor> left_child_;
   std::unique_ptr<AbstractExecutor> right_child_;
-  std::unordered_map<hash_t, std::vector<Tuple>> hash_join_table_;
+  ankerl::unordered_dense::map<hash_t, std::vector<Tuple>> hash_join_table_;
   std::vector<Tuple> output_;
   std::vector<Tuple>::const_iterator output_iter_;
 };

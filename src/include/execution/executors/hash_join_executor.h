@@ -12,8 +12,6 @@
 
 #pragma once
 
-#include "unordered_dense.h"
-
 #include <memory>
 #include <utility>
 #include <vector>
@@ -23,6 +21,8 @@
 #include "execution/executors/abstract_executor.h"
 #include "execution/plans/hash_join_plan.h"
 #include "storage/table/tuple.h"
+
+#include "unordered_dense/unordered_dense.h"
 
 namespace bustub {
 

@@ -18,6 +18,9 @@
 
 namespace bustub {
 
+std::unordered_map<LockManager::LockMode, std::unordered_set<LockManager::LockMode>> LockManager::compatible_matrix;
+std::unordered_map<LockManager::LockMode, std::unordered_set<LockManager::LockMode>> LockManager::upgrade_matrix;
+
 auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oid_t &oid) -> bool { return true; }
 
 auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool { return true; }

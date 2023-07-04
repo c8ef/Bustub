@@ -30,6 +30,8 @@ namespace bustub {
 
 class TransactionManager;
 
+constexpr txn_id_t NO_CYCLE = -1;
+
 /**
  * LockManager handles transactions asking for locks on records.
  */
@@ -63,8 +65,29 @@ class LockManager {
 
   class LockRequestQueue {
    public:
+    void InsertIntoQueue(const std::shared_ptr<LockRequest> &request, bool place_first) {
+      if (!place_first) {
+        request_queue_.push_back(request);
+        return;
+      }
+
+      const auto iter = std::find_if_not(request_queue_.begin(), request_queue_.end(),
+                                         [](const std::shared_ptr<LockRequest> &request) { return request->granted_; });
+      request_queue_.insert(iter, request);
+    }
+
+    auto IsCompatibleUntil(std::list<std::shared_ptr<LockRequest>>::iterator next) -> bool {
+      for (auto iter = request_queue_.begin(); iter != next; ++iter) {
+        if (compatible_matrix[(*iter)->lock_mode_].find((*next)->lock_mode_) ==
+            compatible_matrix[(*iter)->lock_mode_].end()) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     /** List of lock requests for the same resource (table or row) */
-    std::list<LockRequest *> request_queue_;
+    std::list<std::shared_ptr<LockRequest>> request_queue_;
     /** For notifying blocked transactions on this rid */
     std::condition_variable cv_;
     /** txn_id of an upgrading transaction (if any) */
@@ -107,7 +130,9 @@ class LockManager {
   /**
    * Creates a new lock manager configured for the deadlock detection policy.
    */
-  LockManager() : compatible_matrix_(MakeCompatibleMatrix()), upgrade_matrix_(MakeUpgradeMatrix()) {
+  LockManager() {
+    compatible_matrix = MakeCompatibleMatrix();
+    upgrade_matrix = MakeUpgradeMatrix();
     enable_cycle_detection_ = true;
     cycle_detection_thread_ = new std::thread(&LockManager::RunCycleDetection, this);
   }
@@ -330,8 +355,8 @@ class LockManager {
 
  private:
   /** Fall 2022 */
-  std::unordered_map<LockMode, std::unordered_set<LockMode>> compatible_matrix_;
-  std::unordered_map<LockMode, std::unordered_set<LockMode>> upgrade_matrix_;
+  static std::unordered_map<LockMode, std::unordered_set<LockMode>> compatible_matrix;
+  static std::unordered_map<LockMode, std::unordered_set<LockMode>> upgrade_matrix;
 
   /** Structure that holds lock requests for a given table oid */
   std::unordered_map<table_oid_t, std::shared_ptr<LockRequestQueue>> table_lock_map_;

@@ -73,10 +73,41 @@ class LockManager {
     std::mutex latch_;
   };
 
+  static auto MakeCompatibleMatrix() -> std::unordered_map<LockMode, std::unordered_set<LockMode>> {
+    std::unordered_map<LockMode, std::unordered_set<LockMode>> compatible_matrix;
+
+    compatible_matrix[LockMode::INTENTION_SHARED].insert({LockMode::INTENTION_SHARED, LockMode::INTENTION_EXCLUSIVE,
+                                                          LockMode::SHARED, LockMode::SHARED_INTENTION_EXCLUSIVE});
+    compatible_matrix[LockMode::INTENTION_EXCLUSIVE].insert(
+        {LockMode::INTENTION_SHARED, LockMode::INTENTION_EXCLUSIVE});
+    compatible_matrix[LockMode::SHARED].insert({LockMode::INTENTION_SHARED, LockMode::SHARED});
+    compatible_matrix[LockMode::SHARED_INTENTION_EXCLUSIVE].insert({LockMode::INTENTION_SHARED});
+    compatible_matrix[LockMode::EXCLUSIVE].insert({});
+
+    return compatible_matrix;
+  }
+
+  static auto MakeUpgradeMatrix() -> std::unordered_map<LockMode, std::unordered_set<LockMode>> {
+    std::unordered_map<LockMode, std::unordered_set<LockMode>> upgrade_matrix;
+
+    // IS -> [S, X, IX, SIX]
+    // S -> [X, SIX]
+    // IX -> [X, SIX]
+    // SIX -> [X]
+    upgrade_matrix[LockMode::INTENTION_SHARED].insert(
+        {LockMode::SHARED, LockMode::EXCLUSIVE, LockMode::INTENTION_EXCLUSIVE, LockMode::SHARED_INTENTION_EXCLUSIVE});
+    upgrade_matrix[LockMode::SHARED].insert({LockMode::EXCLUSIVE, LockMode::SHARED_INTENTION_EXCLUSIVE});
+    upgrade_matrix[LockMode::INTENTION_EXCLUSIVE].insert({LockMode::EXCLUSIVE, LockMode::SHARED_INTENTION_EXCLUSIVE});
+    upgrade_matrix[LockMode::SHARED_INTENTION_EXCLUSIVE].insert({LockMode::EXCLUSIVE});
+    upgrade_matrix[LockMode::EXCLUSIVE].insert({});
+
+    return upgrade_matrix;
+  }
+
   /**
    * Creates a new lock manager configured for the deadlock detection policy.
    */
-  LockManager() {
+  LockManager() : compatible_matrix_(MakeCompatibleMatrix()), upgrade_matrix_(MakeUpgradeMatrix()) {
     enable_cycle_detection_ = true;
     cycle_detection_thread_ = new std::thread(&LockManager::RunCycleDetection, this);
   }
@@ -299,6 +330,9 @@ class LockManager {
 
  private:
   /** Fall 2022 */
+  std::unordered_map<LockMode, std::unordered_set<LockMode>> compatible_matrix_;
+  std::unordered_map<LockMode, std::unordered_set<LockMode>> upgrade_matrix_;
+
   /** Structure that holds lock requests for a given table oid */
   std::unordered_map<table_oid_t, std::shared_ptr<LockRequestQueue>> table_lock_map_;
   /** Coordination */
